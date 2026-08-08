@@ -1,0 +1,16 @@
+{
+  "id": "C007",
+  "tolerancia": 0.01,
+  "kpisEsperados": {
+    "totalPaid": 4170.24,
+    "totalLump": 0,
+    "peak": 130.32,
+    "durationMonths": 39
+  },
+  "paridadLegadoVsCanonico": {
+    "valid": true,
+    "differences": [],
+    "legacyTotalPaid": 4170.24,
+    "canonicalTotalCost": 4170.24
+  }
+}
