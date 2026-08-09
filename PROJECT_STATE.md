@@ -2,6 +2,25 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Publicación — PR #5 fusionado a `main`
+
+A petición expresa del usuario ("empezamos por fusionar el PR #5"), el PR #5 se fusiona a
+`main` mediante squash (`8821c62`). Queda publicado:
+
+- **E20-3**: `#escenario-simular` deja de construir solo `amortizacion` y cubre los once
+  tipos que el motor resuelve, validados contra el contrato antes de simular.
+- **Material de diseño ampliado**: turnos 4 y 5 del canvas de mockups, prototipo navegable
+  de las seis vistas, documento de entrega y 17 capturas nuevas.
+
+Validación de cierre repetida sobre el `main` ya fusionado: 403/403 pruebas, accesibilidad
+(537 IDs únicos), rendimiento, build público, privacidad y smoke test en verde.
+
+Pendiente en el backlog, por orden acordado con el usuario: **2a · «Registrar el mes»**
+(`#update-data`, la tabla editable que 3a necesita como base) y **3a/3b/3c · cuadro de mandos
+con impacto**, esta última ya con especificación real gracias al turno 5. La decisión sobre
+adoptar o no el rediseño a seis vistas queda deliberadamente aplazada a después de ver el pie
+de impacto funcionando en la app real.
+
 ## Documentación — el rediseño a seis vistas entra en el repositorio
 
 El usuario aportó una ampliación del documento de mockups y pidió incluir los visuales en la
