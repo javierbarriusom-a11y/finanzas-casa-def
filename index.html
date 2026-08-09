@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.webmanifest?v=20260808e18a4" />
     <link rel="stylesheet" href="styles.css?v=20260808e18a4" />
     <link rel="stylesheet" href="p2.css?v=20260801e9c" />
-    <link rel="stylesheet" href="design-tokens.css?v=20260809e20b3" />
+    <link rel="stylesheet" href="design-tokens.css?v=20260809e20b4" />
   </head>
   <body>
     <a class="skip-link" href="#mainContent">Saltar al contenido</a>
@@ -58,6 +58,7 @@
               <a href="#deuda-comparar" data-e17-group="analysis">Comparar estrategias de deuda (nuevo)</a>
               <a href="#deuda-ruta" data-e17-group="analysis">Plan de deuda · ruta (nuevo)</a>
               <a href="#debt-roadmap" data-e17-group="analysis">Plan de deuda</a>
+              <a href="#asesor-decision" data-e17-group="assistants">Asesor ejecutivo (nuevo)</a>
               <a href="#executive-advisor" data-e17-group="assistants">Asesor ejecutivo</a>
               <a href="#virtual-advisor" data-e17-group="assistants">Asesor virtual</a>
               <a href="#debt-liquidation-plan" data-e17-group="analysis">Plan deuda óptimo</a>
@@ -1022,6 +1023,56 @@
                 <article class="e19-card">
                   <h3 class="escenario-motor-panel-title">Meses anteriores</h3>
                   <div class="conciliar-month-history" id="conciliarHistory"></div>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="e19-asesor-decision view-section" id="asesor-decision">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow">Decidir · asesor ejecutivo</p>
+                <h2 class="e19-heading">Qué hacer ahora</h2>
+                <p class="e19-subtitle">La oferta de deuda registrada más urgente, con lo que cambia si la aplicas. Ninguna cifra se inventa: sale de la oferta real y del forecast.</p>
+              </div>
+            </div>
+
+            <div class="e19-card asesor-decision-empty" id="asesorDecisionEmpty" hidden>
+              <h3>No hay ninguna decisión abierta ahora mismo</h3>
+              <p class="e19-subtitle">No tienes ninguna oferta de deuda registrada con vencimiento pendiente de aplicar. Registra una en Plan de deuda para verla aquí.</p>
+              <a class="e19-btn e19-btn-primary" href="#debt-roadmap">Registrar oferta</a>
+            </div>
+
+            <div class="asesor-decision-layout" id="asesorDecisionContent">
+              <article class="e19-card asesor-decision-main">
+                <div class="asesor-decision-head">
+                  <span class="e19-badge e19-badge-neutral" id="asesorDecisionDeadline"></span>
+                  <h3 id="asesorDecisionTitle"></h3>
+                  <strong id="asesorDecisionAmount"></strong>
+                </div>
+                <div class="asesor-decision-stats" id="asesorDecisionStats"></div>
+
+                <h4 class="escenario-motor-panel-title asesor-decision-subtitle">De dónde puede salir el dinero</h4>
+                <p class="e19-kpi-note">Cobertura estimada con los saldos actuales de cada cuenta — no es un reparto ya decidido.</p>
+                <div class="asesor-decision-funding" id="asesorDecisionFunding"></div>
+
+                <div class="asesor-decision-actions">
+                  <a class="e19-btn e19-btn-primary" id="asesorDecisionApply" href="#debt-roadmap">Revisar y aplicar en Plan de deuda</a>
+                </div>
+              </article>
+
+              <div class="deuda-ruta-side">
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Límites que no se rompen</h3>
+                  <ul class="asesor-decision-limits" id="asesorDecisionLimits"></ul>
+                </article>
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Otras ofertas en espera</h3>
+                  <div class="asesor-decision-queue" id="asesorDecisionQueue"></div>
+                </article>
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Con qué datos</h3>
+                  <ul class="asesor-decision-limits" id="asesorDecisionData"></ul>
                 </article>
               </div>
             </div>
@@ -2748,7 +2799,7 @@
     <script src="canonical-e9-banking.js?v=20260801e9b"></script>
     <script src="canonical-e9-bank-import.js?v=20260801e9b"></script>
     <script src="canonical-e11b-inbox.js?v=20260801e11b1"></script>
-    <script src="e17-experience.js?v=20260809e20b3"></script>
+    <script src="e17-experience.js?v=20260809e20b4"></script>
     <script src="e18-health.js?v=20260808e18a4"></script>
     <script src="canonical-decisions.js?v=20260714d"></script>
     <script src="canonical-commit-barrier.js?v=20260718p05"></script>

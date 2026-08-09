@@ -86,7 +86,7 @@ a la que corresponden y su estado de migración a día de hoy.
 | 1a | Hoy · navegación reducida a cuatro verbos, una lectura y tres decisiones | `#home` | ✅ Migrada (E19-2) |
 | 1b | Plan de deuda · ruta como línea de tiempo (dataviz A) | `#deuda-ruta` | ✅ Migrada (E20-2) |
 | 1c | Plan de deuda · comparador de estrategias (dataviz B) | `#deuda-comparar` | ✅ Migrada (E20-2, parcial — ver nota) |
-| 1d | Asesor ejecutivo · una decisión abierta a la vez | `#executive-advisor` | ⏳ Pendiente |
+| 1d | Asesor ejecutivo · una decisión abierta a la vez | `#asesor-decision` | ✅ Migrada (E20-2, parcial — ver nota) |
 | 1e | Simulación nueva vida · simular → comparar → aplicar en una sola vista | `#escenario-simular` | ✅ Migrada (E20-1) |
 | 1f | Actualizar mis datos · hub ordenado por lo que tienes delante | `#update-hub` | ✅ Migrada (E19-3) |
 | 1g | Conciliación · las diferencias como tareas, no como tablas | `#conciliar` | ✅ Migrada (E20-2) |
@@ -200,3 +200,39 @@ deliberadamente no reproduce.
 "Meses anteriores" deriva su estado (cerrado / reabierto N veces) de `monthClosures`, el
 registro real de operaciones de cierre — no hay estados fabricados como "revisar" o
 similar que no tengan un operación real detrás.
+
+## 8. Asesor ejecutivo (1d)
+
+El mockup 1d asume que siempre hay "una decisión abierta" con importe y vencimiento
+reales esperando confirmación. Ese concepto no existe hoy como motor de recomendación
+genérico — nada en la app calcula "la decisión más urgente" de la nada. A petición
+expresa del usuario (tras planteárselo como decisión de producto explícita, no
+técnica), `#asesor-decision` (E20-2) se construye sobre **ofertas reales de E14b**: la
+oferta de deuda que el propio usuario registra en `#debt-roadmap` (con contraparte,
+importe, vencimiento y modalidad reales), filtrando las que ya tienen una decisión
+aplicada (`debtLiquidations`) y ordenando por vencimiento más próximo.
+
+**Sin ofertas abiertas, la pantalla lo dice.** No hay estado "de relleno": si
+`e14bWorkspace().offers` no tiene ninguna oferta pendiente, se muestra un estado vacío
+explícito con enlace a "Registrar oferta" en vez de simular una decisión inexistente.
+Es el comportamiento esperado la mayor parte del tiempo con datos nuevos, documentado
+así en vez de disimulado.
+
+Cifras reales, no fabricadas:
+- **Ahorras / cuota liberada / caja mínima tras pagar**: `offer.discount` (principal −
+  importe de la oferta) y `E14DebtOperations.simulateStrategy()` sobre el forecast
+  real — la misma simulación que ya usa el panel E14b para comparar.
+- **De dónde puede salir el dinero**: cobertura estimada con los saldos reales de cada
+  cuenta (`accountBalancesFromState`), explícitamente etiquetada como "cobertura
+  estimada", no como un reparto ya decidido — el mockup insinúa una asignación fija que
+  no existe como dato real en ningún sitio.
+- **Límites que no se rompen**: reserva (`agentCaixaFloor`), colchón en meses
+  (mismo cálculo que el KPI "Meses colchón" de Hoy — contrastado en verificación:
+  coinciden exactamente) y deuda/ingresos (`FinanceP2Bridge.e16Input().riskBudget`).
+- **Otras ofertas en espera**: el resto de ofertas abiertas de E14b, si existen —
+  ningún estado "Preparar/En espera" por tipo de acción, que no tiene datos reales
+  detrás en este flujo.
+
+"Revisar y aplicar en Plan de deuda" preselecciona la oferta y navega a `#debt-roadmap`
+— reutiliza el flujo real de aplicación (motivo, documentos mínimos, reserva protegida)
+en vez de reconstruirlo aquí.

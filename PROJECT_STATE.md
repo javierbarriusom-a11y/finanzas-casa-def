@@ -2,6 +2,37 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Cierre de sesión — E20-2 (continuación): asesor ejecutivo (1d)
+
+Cuarta pantalla del tramo actual: `#asesor-decision`. A diferencia de 1b/1c/1g, esta no
+era un reskin sobre lógica ya existente — el mockup asume un motor de recomendación que
+no existe. Se planteó explícitamente como decisión de producto al usuario (no una
+elección técnica silenciosa): construir la pantalla sobre ofertas reales de E14b (la
+oferta de deuda más urgente que el propio usuario registra en `#debt-roadmap`, con
+vencimiento e importe reales), reutilizar el motor de recomendaciones genérico de E16
+(siempre tiene contenido pero es más superficial, sin importe/vencimiento concretos), o
+aplazar la pantalla. El usuario eligió la primera opción.
+
+Sin ninguna oferta abierta registrada — el caso más común en un dataset nuevo — la
+pantalla muestra un estado vacío explícito en vez de fabricar una decisión. Con una
+oferta real: ahorras/cuota liberada/caja mínima salen de
+`E14DebtOperations.simulateStrategy()` (la misma simulación que ya usa el panel E14b);
+la cobertura "de dónde puede salir el dinero" son los saldos reales de cada cuenta,
+etiquetados como estimación, no como reparto ya decidido (el mockup insinúa una
+asignación fija que no tiene dato real detrás); los límites (reserva, colchón,
+deuda/ingresos) reutilizan cálculos ya existentes en otras pantallas — verificado que
+"colchón: 2.0" coincide exactamente con el mismo KPI del panel Hoy. "Revisar y aplicar"
+preselecciona la oferta y navega al flujo real de aplicación en `#debt-roadmap` en vez
+de reconstruirlo. Detalle completo en `docs/E19_SISTEMA_DISENO.md` §8.
+
+Verificado con Playwright de extremo a extremo: estado vacío sin ofertas, registro de
+una oferta real en `#debt-roadmap`, contenido completo y correcto en `#asesor-decision`,
+navegación de vuelta con la oferta preseleccionada. Un bug pequeño encontrado y
+corregido (falta de espacio en el título por un `.trim()` aplicado al segmento entero en
+vez de solo a la parte opcional).
+
+403 pruebas (403 pass), `npm run verify` en verde.
+
 ## Cierre de sesión — E20-2 (continuación): conciliación (1g)
 
 Tercera pantalla del tramo actual: `#conciliar`, puro reskin sobre la conciliación real ya

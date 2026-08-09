@@ -18995,6 +18995,141 @@ function renderConciliar() {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Asesor ejecutivo (E20-2, mockup 1d). "La decisión abierta" = la oferta de deuda registrada más
+// urgente en E14b (Plan de deuda) sin decisión aplicada todavía. No existe un motor de
+// recomendación genérico capaz de fabricar una decisión con importe y vencimiento reales de la
+// nada — a petición del usuario, se construye sobre las ofertas reales que el propio usuario
+// registra en #debt-roadmap en vez de inventar una. Sin ninguna oferta abierta, la pantalla lo
+// dice explícitamente en vez de simular una decisión que no existe.
+// ---------------------------------------------------------------------------------------------
+function asesorDecisionOpenOffers() {
+  const workspace = e14bWorkspace();
+  return workspace.offers
+    .filter((offer) => offer.status !== "rejected" && !debtLiquidations.some((item) => item.targetId === offer.contractId))
+    .slice()
+    .sort((a, b) => String(a.expiresAt || "9999-99").localeCompare(String(b.expiresAt || "9999-99")));
+}
+
+// Cobertura estimada con los saldos reales de cada cuenta (accountBalancesFromState) — no un
+// reparto ya decidido: solo muestra de dónde saldría el dinero si se pagara hoy con lo que hay.
+function asesorDecisionFundingHtml(amount) {
+  const balances = accountBalancesFromState();
+  const sources = [
+    { label: "Mediolanum", available: balances.mediolanum },
+    { label: "CaixaBank", available: balances.caixa },
+  ].filter((source) => source.available > 0);
+  let remaining = amount;
+  const rows = sources.map((source) => {
+    const used = Math.max(0, Math.min(remaining, source.available));
+    remaining = round2(remaining - used);
+    return { ...source, used };
+  });
+  if (remaining > 0.01) rows.push({ label: "Sin cobertura con los saldos actuales", used: remaining, short: true });
+  const total = Math.max(1, amount);
+  return rows
+    .filter((row) => row.used > 0)
+    .map(
+      (row) => `<div class="asesor-decision-funding-row${row.short ? " is-danger" : ""}">
+        <span>${escapeHtml(row.label)}</span>
+        <strong>${money(row.used, true)}</strong>
+        <div class="asesor-decision-funding-bar"><span style="width:${Math.round((row.used / total) * 100)}%"></span></div>
+      </div>`
+    )
+    .join("");
+}
+
+function renderAsesorDecision() {
+  const offers = asesorDecisionOpenOffers();
+  const emptyEl = qs("asesorDecisionEmpty");
+  const contentEl = qs("asesorDecisionContent");
+  if (!offers.length || !E14DebtOperations) {
+    if (emptyEl) emptyEl.hidden = false;
+    if (contentEl) contentEl.hidden = true;
+    return;
+  }
+  if (emptyEl) emptyEl.hidden = true;
+  if (contentEl) contentEl.hidden = false;
+
+  const offer = offers[0];
+  const contract = debtTargetById(offer.contractId, { includePlanned: true });
+  const forecast = e14bForecast();
+  const strategy = e14bStrategyForOffer(offer);
+  const simulation = forecast?.valid && strategy ? E14DebtOperations.simulateStrategy(strategy, forecast) : null;
+  const reserve = agentCaixaFloor();
+
+  const deadline = qs("asesorDecisionDeadline");
+  if (deadline) deadline.textContent = offer.expiresAt ? `Decisión abierta · vence ${escenarioMotorMonthLabel(offer.expiresAt)}` : "Decisión abierta · sin vencimiento indicado";
+  const titleEl = qs("asesorDecisionTitle");
+  if (titleEl) titleEl.textContent = `Pagar la oferta de ${offer.counterpart || "sin contraparte"}${contract ? ` · ${contract.entity}${contract.type ? ` ${contract.type}` : ""}` : ""}`;
+  const amountEl = qs("asesorDecisionAmount");
+  if (amountEl) amountEl.textContent = money(offer.amount, true);
+
+  const statsEl = qs("asesorDecisionStats");
+  if (statsEl) {
+    statsEl.innerHTML = [
+      ["Ahorras", money(offer.discount, true)],
+      ["Cuota liberada", `${money(contract?.payment ?? 0, true)}/mes`],
+      ["Caja mínima tras pagar", simulation ? money(simulation.minimumLiquidity, true) : "Sin forecast"],
+    ]
+      .map(([label, value]) => `<div class="asesor-decision-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+      .join("");
+  }
+
+  const fundingEl = qs("asesorDecisionFunding");
+  if (fundingEl) fundingEl.innerHTML = asesorDecisionFundingHtml(offer.amount);
+
+  const applyLink = qs("asesorDecisionApply");
+  if (applyLink) {
+    applyLink.onclick = () => {
+      e14bWorkspace().selectedOfferId = offer.id;
+      queueRemoteSave();
+    };
+  }
+
+  const limitsEl = qs("asesorDecisionLimits");
+  if (limitsEl) {
+    const p2Input = window.FinanceP2Bridge?.e16Input?.() || {};
+    const maxDebtRatio = Number(p2Input.riskBudget?.maximumDebtRatio || 0);
+    const debtRatio = Number(p2Input.debtRatio || 0);
+    const next12 = lastSimulation.slice(0, Math.min(12, lastSimulation.length));
+    const monthlyOutflow = next12.length ? next12.reduce((sum, row) => sum + row.coreSpend + row.car + row.refi, 0) / next12.length : 0;
+    const bufferMonths = safeCoverageMonths(state.initialCash, monthlyOutflow);
+    const bufferTarget = Number(state.emergencyBufferMonths || 0);
+    const cajaOk = simulation ? simulation.minimumLiquidity >= reserve : null;
+    const items = [
+      { ok: cajaOk, label: `Reserva CaixaBank ${money(reserve, true)} mín.${simulation ? ` · queda en ${money(simulation.minimumLiquidity, true)}` : ""}` },
+      { ok: bufferMonths === null ? null : bufferMonths >= bufferTarget, label: `Colchón ${bufferTarget} mes(es) obj. · ahora ${coverageMonthsText(bufferMonths)}` },
+      { ok: maxDebtRatio ? debtRatio <= maxDebtRatio : null, label: maxDebtRatio ? `Deuda/ingresos ${maxDebtRatio}% máx. · ahora ${debtRatio}%` : `Deuda/ingresos ahora ${debtRatio}% (sin límite configurado en Presupuesto de riesgo)` },
+    ];
+    limitsEl.innerHTML = items.map((item) => `<li class="deuda-ruta-check${item.ok === false ? " is-danger" : item.ok ? " is-ok" : ""}">${escapeHtml(item.label)}</li>`).join("");
+  }
+
+  const queueEl = qs("asesorDecisionQueue");
+  if (queueEl) {
+    const rest = offers.slice(1);
+    queueEl.innerHTML = rest.length
+      ? rest
+          .map(
+            (item) => `<div class="conciliar-history-row"><span>${escapeHtml(item.counterpart || "Sin contraparte")}</span><strong>${money(item.amount, true)}${item.expiresAt ? ` · vence ${escapeHtml(escenarioMotorMonthLabel(item.expiresAt))}` : ""}</strong></div>`
+          )
+          .join("")
+      : `<p class="e19-kpi-note">Sin más ofertas abiertas ahora mismo.</p>`;
+  }
+
+  const dataEl = qs("asesorDecisionData");
+  if (dataEl) {
+    const snapshot = window.FinanceCanonicalLedger ? refreshCanonicalLedger("asesor-decision-view") : null;
+    const coverage = snapshot?.quality?.coverage;
+    const items = [
+      "Saldos: hoy, cuenta corriente + ahorro",
+      Number.isFinite(coverage) ? `Conciliación: ${coverage}% de movimientos clasificados` : "Conciliación: sin datos de extracto",
+      `Forecast: ${forecast?.valid ? "disponible" : "no disponible todavía"}`,
+    ];
+    dataEl.innerHTML = items.map((text) => `<li class="deuda-ruta-check">${escapeHtml(text)}</li>`).join("");
+  }
+}
+
 function renderActiveSection(viewId = viewFromHash()) {
   if (!lastSimulation.length) return;
   switch (viewId) {
@@ -19036,6 +19171,9 @@ function renderActiveSection(viewId = viewFromHash()) {
       break;
     case "conciliar":
       renderConciliar();
+      break;
+    case "asesor-decision":
+      renderAsesorDecision();
       break;
     case "debt-roadmap":
       renderE14bPanel();

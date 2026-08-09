@@ -1517,3 +1517,204 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* -------------------------------------------------------------------------------------------- */
+/* Asesor ejecutivo (E20-2) — mockup 1d. La "decisión abierta" sale de una oferta real registrada  */
+/* en E14b (Plan de deuda), no de un motor de recomendación genérico. Sin ofertas abiertas se       */
+/* muestra .asesor-decision-empty en vez de fabricar una decisión.                                 */
+/* -------------------------------------------------------------------------------------------- */
+
+.e19-asesor-decision .asesor-decision-empty {
+  padding: 24px;
+  text-align: center;
+}
+
+.e19-asesor-decision .asesor-decision-empty h3 {
+  margin: 0 0 8px;
+  font: 700 var(--e19-text-lg) / 1.2 var(--e19-font-sans);
+  color: var(--e19-heading);
+}
+
+.e19-asesor-decision .asesor-decision-empty .e19-btn {
+  margin-top: 14px;
+}
+
+.e19-asesor-decision .asesor-decision-layout {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 340px);
+  gap: 18px;
+  align-items: start;
+}
+
+.e19-asesor-decision .asesor-decision-layout > * {
+  min-width: 0;
+}
+
+.e19-asesor-decision .asesor-decision-main {
+  padding: 20px;
+}
+
+.e19-asesor-decision .asesor-decision-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.e19-asesor-decision .asesor-decision-head h3 {
+  margin: 0;
+  font: 700 var(--e19-text-xl) / 1.25 var(--e19-font-sans);
+  color: var(--e19-heading);
+}
+
+.e19-asesor-decision .asesor-decision-head strong {
+  font: 700 var(--e19-text-display) / 1 var(--e19-font-sans);
+  color: var(--e19-accent);
+}
+
+.e19-asesor-decision .asesor-decision-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.e19-asesor-decision .asesor-decision-stat {
+  padding: 12px;
+  border-radius: var(--e19-radius-md);
+  background: var(--e19-surface-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.e19-asesor-decision .asesor-decision-stat span {
+  font-size: var(--e19-text-xs);
+  color: var(--e19-muted);
+}
+
+.e19-asesor-decision .asesor-decision-stat strong {
+  font-size: var(--e19-text-lg);
+  color: var(--e19-success);
+}
+
+.e19-asesor-decision .asesor-decision-subtitle {
+  margin-top: 6px;
+}
+
+.e19-asesor-decision .asesor-decision-funding {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.e19-asesor-decision .asesor-decision-funding-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  font-size: var(--e19-text-sm);
+}
+
+.e19-asesor-decision .asesor-decision-funding-row span {
+  color: var(--e19-muted);
+}
+
+.e19-asesor-decision .asesor-decision-funding-row strong {
+  color: var(--e19-ink);
+  text-align: right;
+}
+
+.e19-asesor-decision .asesor-decision-funding-row.is-danger strong {
+  color: var(--e19-danger);
+}
+
+.e19-asesor-decision .asesor-decision-funding-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  border-radius: var(--e19-radius-pill);
+  background: var(--e19-surface-sunken);
+  overflow: hidden;
+}
+
+.e19-asesor-decision .asesor-decision-funding-row.is-danger .asesor-decision-funding-bar {
+  background: color-mix(in srgb, var(--e19-danger) 20%, var(--e19-surface-sunken));
+}
+
+.e19-asesor-decision .asesor-decision-funding-bar span {
+  display: block;
+  height: 100%;
+  background: var(--e19-accent);
+}
+
+.e19-asesor-decision .asesor-decision-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.e19-asesor-decision .deuda-ruta-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.e19-asesor-decision .deuda-ruta-side .e19-card {
+  padding: 18px;
+}
+
+.e19-asesor-decision .asesor-decision-limits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.e19-asesor-decision .deuda-ruta-check {
+  font-size: var(--e19-text-sm);
+  padding: 8px 10px;
+  border-radius: var(--e19-radius-sm);
+  background: var(--e19-surface-soft);
+  color: var(--e19-muted);
+}
+
+.e19-asesor-decision .deuda-ruta-check.is-ok {
+  color: var(--e19-success);
+  background: color-mix(in srgb, var(--e19-success) 10%, var(--e19-surface-soft));
+}
+
+.e19-asesor-decision .deuda-ruta-check.is-danger {
+  color: var(--e19-danger);
+  background: color-mix(in srgb, var(--e19-danger) 10%, var(--e19-surface-soft));
+}
+
+.e19-asesor-decision .asesor-decision-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.e19-asesor-decision .conciliar-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--e19-border);
+  font-size: var(--e19-text-sm);
+}
+
+.e19-asesor-decision .conciliar-history-row:last-child {
+  border-bottom: none;
+}
+
+.e19-asesor-decision .conciliar-history-row span {
+  color: var(--e19-muted);
+}
+
+@media (max-width: 860px) {
+  .e19-asesor-decision .asesor-decision-layout {
+    grid-template-columns: 1fr;
+  }
+}
