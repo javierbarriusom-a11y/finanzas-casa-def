@@ -2,6 +2,22 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Publicación — PR #4 fusionado a `main`
+
+A petición expresa del usuario ("haz commit y push para publicar si es posible"), el
+PR #4 (E20-2: comparador de estrategias de deuda, plan de deuda · ruta, conciliación y
+asesor ejecutivo — mockups 1b/1c/1g/1d) se fusiona a `main` mediante squash (`547117a`).
+Las cuatro pantallas nuevas quedan publicadas en el sitio: `#deuda-comparar`,
+`#deuda-ruta`, `#conciliar`, `#asesor-decision`.
+
+Validación de cierre repetida sobre el `main` ya fusionado: 403/403 pruebas,
+accesibilidad, rendimiento, build público, privacidad y smoke test en verde. Árbol de
+trabajo limpio.
+
+Pendiente en el backlog de este mismo bloque (E20-2): cuadro de mandos con impacto
+(3a/3b/3c — capacidad nueva, no un reskin) y sumar más tipos de decisión a
+`#escenario-simular`.
+
 ## Cierre de sesión — E20-2 (continuación): asesor ejecutivo (1d)
 
 Cuarta pantalla del tramo actual: `#asesor-decision`. A diferencia de 1b/1c/1g, esta no
