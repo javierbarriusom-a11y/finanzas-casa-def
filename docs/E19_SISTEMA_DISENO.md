@@ -3,17 +3,30 @@
 Este documento es el que `design-tokens.css` cita desde su cabecera ("extraídos a un
 lenguaje de tokens reutilizable en docs/E19_SISTEMA_DISENO.md") y que hasta ahora no
 existía en el repositorio. Recoge de dónde sale el sistema de diseño E19, qué tokens y
-componentes ya están construidos, y el catálogo completo de las 15 pantallas mockup que
+componentes ya están construidos, y el catálogo completo de las pantallas mockup que
 lo originaron — migradas o pendientes.
 
 ## 1. Origen
 
 El sistema E19 nace de un documento de mockups aportado por el usuario ("Finanzas Casa ·
-Mockups"), un canvas de diseño con tres bloques de exploración ("turns") y 15 variantes de
-pantalla en total. El archivo original se conserva en
-`docs/mockups/finanzas-casa-mockups.dc.html` (formato canvas de diseño; las capturas
-estáticas por pantalla están en `docs/mockups/screens/`). Es material de referencia
-interno del repositorio, no se sirve desde `index.html` ni se enlaza al sitio público.
+Mockups"), un canvas de diseño con bloques de exploración ("turns"). El usuario amplió el
+material el 9 de agosto de 2026 con dos turnos nuevos, un prototipo navegable aparte y un
+documento de entrega; todo ello está incorporado a este repositorio:
+
+| Archivo | Qué es |
+|---|---|
+| `docs/mockups/finanzas-casa-mockups.dc.html` | Canvas de exploración: **cinco turnos, 25 variantes de pantalla**. Turnos 1-3 = el catálogo original de 15 pantallas; turno 4 = el rediseño completo a seis vistas; turno 5 = especificaciones de interacción y dos prototipos vivos |
+| `docs/mockups/finanzas-casa-app.dc.html` | **Prototipo navegable** de las seis vistas del rediseño, con las interacciones reales (pie de impacto, importación en cuatro pasos, estrategias de deuda, cierre por tareas). La entrega lo señala como la referencia principal |
+| `docs/mockups/HANDOFF_REDISENO_6_VISTAS.md` | Documento de entrega del rediseño: propósito de cada vista, comportamiento, estado, tokens y medidas exactas |
+| `docs/mockups/screens/` | Capturas estáticas por pantalla (`1a`…`5d`, más `app-1`…`app-6`) |
+| `docs/mockups/support.js` | Runtime del visor de canvas. No es diseño |
+
+Es material de referencia interno del repositorio: no se sirve desde `index.html` ni se
+enlaza al sitio público.
+
+**Los dos `.dc.html` necesitan conexión a internet** para renderizar — el visor carga React
+desde `unpkg.com` y la tipografía desde Google Fonts. Las capturas de `screens/` son la
+copia legible sin red, y por eso se mantienen actualizadas junto a los canvas.
 
 El propio mockup usa Inter como tipografía, fondo `#F0EEE9`, azul de acento `#0072E3` y
 la paleta semántica (verde éxito, ámbar aviso, terracota deuda, rojo peligro) que
@@ -74,10 +87,13 @@ clase o variable ya usada por otra pantalla. Es el mismo principio de "envolver,
 sustituir" que rige el resto del código (E14, E20): la piel visual se añade capa a capa,
 nunca se reescribe.
 
-## 4. Catálogo de las 15 pantallas del mockup
+## 4. Catálogo de las pantallas del mockup
 
-Los tres bloques ("turns") del documento y sus variantes, con la pantalla real de la app
-a la que corresponden y su estado de migración a día de hoy.
+Los cinco bloques ("turns") del documento y sus variantes, con la pantalla real de la app
+a la que corresponden y su estado de migración a día de hoy. Los turnos 1-3 son el catálogo
+original de 15 pantallas — el que ha guiado todo lo construido hasta E20-3. Los turnos 4 y 5
+llegaron después (ver §10) y **proponen una arquitectura distinta**, no una continuación:
+no tienen "estado de migración" porque no se ha decidido todavía si se adoptan.
 
 ### Turno 1 — Finanzas Casa · rediseño de escritorio (1280px)
 
@@ -109,6 +125,35 @@ a la que corresponden y su estado de migración a día de hoy.
 | 3b | Bandeja de cambios · efecto conjunto de todo lo tocado en la sesión | *(no existe todavía)* | ⏳ Pendiente |
 | 3c | Mapa de calor · dónde duele cada cambio, sin leer una cifra | *(no existe todavía)* | ⏳ Pendiente |
 
+### Turno 4 — Rediseño completo · las 22 pantallas actuales reducidas a 5 + ajustes
+
+Propuesta de arquitectura, no de pantalla suelta. Ver §10.
+
+| # | Título del mockup | Captura |
+|---|---|---|
+| 4a | Mapa del rediseño · qué se funde con qué y por qué | `screens/4a-mapa-redisenio.png` |
+| 4b | Hoy · lectura de caja y tres decisiones, con los asesores fundidos | `screens/4b-hoy-fundido.png` |
+| 4c | Plan · la tabla, la curva y los escenarios en una sola pantalla | `screens/4c-plan-unificado.png` |
+| 4d | Deuda · ruta, comparador de estrategias y ofertas en curso | `screens/4d-deuda-unificada.png` |
+| 4e | Datos · cuatro pestañas y una sola bandeja previa | `screens/4e-datos-bandeja.png` |
+| 4f | Cierre · conciliación por tareas y confianza del dato, juntas | `screens/4f-cierre-tareas.png` |
+
+### Turno 5 — Especificación de interacción + prototipos vivos
+
+| # | Título del mockup | Captura |
+|---|---|---|
+| 5a | Spec · «Actualizar presupuesto» y el pie de impacto | `screens/5a-spec-pie-impacto.png` |
+| 5b | Prototipo vivo · edita las cifras y mira el pie | `screens/5b-prototipo-pie-impacto.png` |
+| 5c | Spec · importación de extracto, decisión a decisión | `screens/5c-spec-importacion.png` |
+| 5d | Prototipo vivo · recorre la importación paso a paso | `screens/5d-prototipo-importacion.png` |
+
+### Prototipo navegable de las seis vistas
+
+`docs/mockups/finanzas-casa-app.dc.html`, capturado vista a vista:
+`app-1-hoy`, `app-2-plan`, `app-3-deuda`, `app-4-datos`, `app-5-cierre`, `app-6-ajustes`,
+más `app-2-plan-pie-impacto` con el pie de impacto desplegado tras editar una celda — el
+estado que no se ve en una captura estática de la vista en reposo.
+
 ## 5. Escenario: simular → aplicar → guardados (1e/2d/2e)
 
 Los mockups 1e, 2d y 2e definen el flujo de decisión como **tres pantallas encadenadas**,
@@ -133,10 +178,8 @@ Dos simplificaciones deliberadas frente al mockup, documentadas en vez de fabric
   en ningún dato real. Es honesto y reversible por construcción, pero no es literalmente
   el "commit al plan" que el mockup insinúa.
 
-Alcance de tipos de decisión: igual que en E20-1 día 1, solo `amortizacion` está
-conectada a estas tres pantallas. El resto de tipos que ya soporta el motor
-(`canonical-scenario-engine.js`: refinanciación, reunificación, compra, imprevisto…) se
-añadirán a los mismos tres controles en próximas fases, sin tener que rediseñar el flujo.
+Alcance de tipos de decisión: ver §9 — desde E20-3 el formulario cubre los once tipos que
+el motor resuelve, sin cambiar el flujo de tres pantallas.
 
 ## 6. Deuda: comparar estrategias → ruta (1b/1c)
 
@@ -236,3 +279,129 @@ Cifras reales, no fabricadas:
 "Revisar y aplicar en Plan de deuda" preselecciona la oferta y navega a `#debt-roadmap`
 — reutiliza el flujo real de aplicación (motivo, documentos mínimos, reserva protegida)
 en vez de reconstruirlo aquí.
+
+## 9. Los once tipos de decisión de `#escenario-simular` (E20-3)
+
+Hasta E20-2 el formulario de «Qué cambias» tenía cuatro controles fijos (deuda, importe,
+mes, guardarraíl) y solo sabía construir decisiones de tipo `amortizacion`, aunque el motor
+(`canonical-scenario-engine.js`) ya resolvía once tipos desde E20-0 día 4. Desde E20-3 el
+formulario es un **catálogo declarativo** (`ESCENARIO_MOTOR_TYPES` en `app.js`): un
+desplegable de tipo, agrupado en «Deuda» y «Vida», y una rejilla de campos que se
+reconstruye según el tipo elegido.
+
+Los once tipos ofrecidos:
+
+| Grupo | Tipo | Qué pide |
+| --- | --- | --- |
+| Deuda | `amortizacion` | Deuda, importe, mes, y una casilla para forzar que sea parcial |
+| Deuda | `amortizacion_fraccionada` | Deuda, importe mensual, número de meses, mes de inicio |
+| Deuda | `refinanciacion` | Deuda, nuevo principal/cuota/TIN/plazo, mes de entrada en vigor |
+| Deuda | `reunificacion` | Dos o más deudas, principal/cuota/TIN/plazo del nuevo préstamo, mes |
+| Deuda | `retomar_pagos` | Deuda **suspendida**, cuota al retomar, mes |
+| Deuda | `acuerdo_quita` | Deuda, importe pactado, mes del pago, fecha de caducidad de la oferta |
+| Vida | `compra` | Nombre, importe, mes y, si se marca «la financio», principal/cuota/TIN/plazo |
+| Vida | `proyecto` | Nombre, importe objetivo, modalidad, mes objetivo (y mes de inicio si es hucha) |
+| Vida | `imprevisto` | Importe, mes y, opcionalmente, cada cuántos meses se repite |
+| Vida | `cambio_ingreso` | Titular, delta mensual (negativo si baja), desde/hasta |
+| Vida | `cambio_gasto` | Bloque, importe fijo **o** porcentaje, desde/hasta |
+
+### Decisiones deliberadas
+
+- **`traspaso` y `cambio_presupuesto` no se ofrecen.** El motor los deja fuera a propósito y
+  lo documenta: uno exigiría ampliar `canonical-engine` para admitir un ajuste puntual del
+  reparto checking/savings por mes, el otro fabricaría un gasto que nadie ha declarado.
+  Ofrecerlos daría un control que no cambia nada en la simulación, sin decirlo.
+- **`acuerdo_quita.modalidad` se fija a `pago_unico`** en vez de pedirla. El motor cierra la
+  deuda con un pago único en el mes resuelto; un desplegable con «fraccionado» prometería
+  un cálculo que hoy no existe. `vigenciaHasta` sí se pide: el contrato la exige y es un
+  dato real de la oferta, aunque el motor todavía no la use para nada.
+- **`proyecto` financiado ≡ pago único.** El esquema de `proyecto` no da plazo ni cuota
+  propios (a diferencia de `compra`), así que las dos modalidades cargan el importe de golpe
+  en el mes objetivo. Se dice en el texto de ayuda del tipo, no se esconde.
+- **El TIN se pide en % y se guarda en fracción.** El contrato quiere 0-0,60; pedir «0,065»
+  al usuario sería una trampa. La conversión vive en un único sitio (`escenarioMotorPct`).
+- **El guardarraíl sale del `<form>`.** Es del escenario entero, no de la decisión que se
+  está componiendo; estaba mezclado con los campos de la decisión y confundía ambas cosas.
+
+### Validación: la del contrato, no una paralela
+
+Cada decisión se construye completa (`id` ULID `dec_…`, `titulo`, `activa`, `orden`,
+`planificacion`, `params`) y pasa por `Schema.validateDecision` **antes** de entrar en la
+simulación. Si el contrato la rechaza no se añade nada y se muestran sus propios mensajes,
+con el `path` traducido al rótulo del campo («Nuevo TIN (%): Falta el campo obligatorio
+«nuevoTIN».»). Antes de E20-3 la interfaz generaba IDs con un formato que el propio contrato
+habría rechazado (`escenario-motor-1`) y no validaba nada: funcionaba porque
+`resolveEscenario` no valida, no porque la decisión fuera correcta.
+
+### Detalles de interfaz
+
+- **Deudas filtradas por tipo.** `retomar_pagos` solo ofrece deudas con `paymentStatus
+  === "suspended"`, porque el aplicador rechaza cualquier otra. Si no hay ninguna, el
+  desplegable lo dice en vez de ofrecer una deuda que el motor va a rechazar.
+- **Campos condicionales sin perder el foco.** «La financio» y el selector importe/porcentaje
+  muestran y ocultan campos alternando `hidden`, sin reconstruir la rejilla; el formulario
+  solo se reconstruye entero al cambiar de tipo, y nunca mientras el foco está dentro.
+  Los campos ocultos no entran en los `params` aunque conserven un valor escrito antes.
+- **Tras añadir una decisión** se vacían importes y textos pero se conservan los desplegables
+  (deuda, mes, titular): encadenar dos decisiones sobre el mismo mes es el caso normal.
+- **Los títulos ya no se recortan.** Con un solo tipo cabían en una línea; con once,
+  «Refinanciar Entidad B Tarjeta» se recortaba justo en la parte que identifica la decisión.
+  Ahora envuelven, y el título está limitado a 60 caracteres por el propio contrato.
+- **Escenarios guardados antes de E20-3** no llevan `titulo` (ni las rutas que llegan desde
+  el comparador de estrategias): se reconstruye con el mismo generador del catálogo, que solo
+  lee claves presentes también en `params`.
+
+## 10. El rediseño a seis vistas (turnos 4-5 y prototipo de app)
+
+Material añadido por el usuario el 9 de agosto de 2026. **No continúa el catálogo de 15
+pantallas: propone sustituir su arquitectura.** Se documenta aquí, con sus capturas, pero
+no se ha adoptado ninguna decisión sobre implementarlo — es la pieza que habría que
+resolver antes de tocar `index.html` en esa dirección.
+
+### Qué propone
+
+Las 22 pantallas actuales se reducen a **seis vistas** con navegación lateral fija: Hoy,
+Plan, Deuda, Datos, Cierre y Ajustes. El criterio es que cada vista responda a una sola
+pregunta y que ningún dato entre en el plan sin una decisión explícita. Las fusiones, según
+el mapa 4a:
+
+| Vista | Absorbe |
+|---|---|
+| **Hoy** | Hoy · home, Asesor ejecutivo, Asesor virtual, Agente ahorro y objetivos, resumen del Centro de alertas |
+| **Plan** | Actualizar previsiones, Previsión mensual, Proyección, Flujo mensual, Plan de ahorro, Simulador, Escenarios de vida |
+| **Deuda** | Plan de deuda, Plan deuda óptimo, Control de deuda, ruta de deuda de la simulación |
+| **Datos** | Actualizar mis datos, Registrar reales del mes, Carga de datos, Movimientos, Series recurrentes |
+| **Cierre** | Conciliación bancaria, Datos y auditoría, Guía operativa, Copias y restauración |
+
+Desaparecen **como pantalla** (no como cálculo): Simulación nueva vida, Simulación nueva
+vida definitiva, Asesor virtual, Agente de ahorro, Gastos recurrentes y Guía operativa.
+
+La regla transversal del rediseño es la del turno 3, generalizada: toda pantalla que cambia
+un número enseña, antes de guardar, el efecto sobre los mismos cuatro indicadores (mínimo
+del año, meses bajo reserva, liquidez a cierre y fecha sin deuda).
+
+### Qué relación tiene con lo ya construido
+
+Choca de frente con la arquitectura actual, que ha ido en la dirección contraria: cada
+mockup migrado (1b, 1c, 1d, 1e, 1g, 2b, 2c, 2d, 2e) se ha añadido como **pantalla nueva
+junto a la heredada**, nunca sustituyéndola — es el principio de "envolver, no sustituir"
+que rige todo el código. El resultado es que hoy conviven `#conciliar` y `#reconciliation`,
+`#deuda-ruta` y `#debt-roadmap`, `#escenario-simular` y `#new-life-simulation`. El rediseño
+a seis vistas es exactamente la operación inversa: fundir los pares y retirar los heredados.
+
+No es un conflicto que se resuelva escribiendo código: es una decisión de producto sobre si
+se retiran pantallas en uso. Por eso queda documentado y sin migrar.
+
+Lo que sí es directamente aprovechable sin esa decisión:
+
+- **El turno 5 especifica de verdad el pendiente 3a/3b/3c.** Hasta ahora el «cuadro de mandos
+  con impacto» era una idea con tres capturas estáticas; 5a y 5c son especificaciones
+  escritas (disparadores, debounce de 120 ms sobre el cálculo y no sobre la aparición,
+  contenido exacto del pie, comportamiento al descartar, mes cerrado, salida con cambios
+  abiertos) y 5b/5d son prototipos que se pueden recorrer. Es la mejor entrada disponible
+  para esa entrega del backlog.
+- **`HANDOFF_REDISENO_6_VISTAS.md` trae medidas y tokens exactos** (paleta completa con
+  hex, escala tipográfica, espaciado, radios y sombras) que coinciden en su mayoría con
+  `design-tokens.css`, con una diferencia notable: el rediseño usa navy `#293E5E` como color
+  primario donde el sistema E19 usa azul `#0072E3`. Adoptar el rediseño implicaría también
+  ese cambio de acento, no solo de arquitectura.

@@ -18041,7 +18041,6 @@ function renderDebtLiquidationPlan() {
 // que sí (ver PROJECT_STATE.md).
 // ---------------------------------------------------------------------------------------------
 let escenarioMotorDecisions = [];
-let escenarioMotorSeq = 0;
 let escenarioMotorSavedSeq = 0;
 let escenarioMotorGuardrailValue = null;
 
@@ -18062,21 +18061,471 @@ function escenarioMotorDebtLabel(contract) {
   return contract.entity ? `${contract.entity} ${contract.type || ""}`.trim() : contract.label || contract.id;
 }
 
-function populateEscenarioMotorControls(baseInput) {
-  const debtSelect = qs("escenarioMotorDebt");
-  const monthSelect = qs("escenarioMotorMonth");
-  if (!debtSelect || !monthSelect) return;
-  const previousDebt = debtSelect.value;
-  const previousMonth = monthSelect.value;
-  const debts = escenarioMotorDebtOptions();
-  debtSelect.innerHTML = debts.length
-    ? debts
-        .map((contract) => `<option value="${escapeHtml(contract.id)}">${escapeHtml(escenarioMotorDebtLabel(contract))} · ${money(contract.currentPrincipal, true)}</option>`)
-        .join("")
-    : `<option value="">Sin deudas vivas</option>`;
-  if (debts.some((contract) => contract.id === previousDebt)) debtSelect.value = previousDebt;
-  monthSelect.innerHTML = baseInput.months.map((month) => `<option value="${escapeHtml(month.monthKey)}">${escapeHtml(month.month)}</option>`).join("");
-  if (baseInput.months.some((month) => month.monthKey === previousMonth)) monthSelect.value = previousMonth;
+// ---------------------------------------------------------------------------------------------
+// E20-3 · Catálogo de tipos de decisión de «Escenario · simular».
+//
+// El motor (`canonical-scenario-engine.js`) resuelve once tipos, pero la interfaz solo dejaba
+// crear `amortizacion`. Aquí se declaran los once con sus campos reales, exactamente como los
+// exige `canonical-scenario-schema.js`. Tres decisiones deliberadas, para no ofrecer ningún
+// control que el motor luego ignore en silencio:
+//   - `traspaso` y `cambio_presupuesto` NO se ofrecen. El motor los deja fuera a propósito (ver
+//     la cabecera de `canonical-scenario-engine.js`: uno exigiría ampliar el motor canónico, el
+//     otro fabricaría un gasto que nadie ha declarado). Ofrecerlos daría una simulación que no
+//     cambia nada sin decirlo.
+//   - `acuerdo_quita.modalidad` se fija a "pago_unico" en vez de pedirla: el motor cierra la
+//     deuda con un pago único en el mes resuelto, así que un desplegable con «fraccionado»
+//     prometería un cálculo que hoy no existe.
+//   - `proyecto` con modalidad "financiado" se calcula igual que "pago_unico" (el esquema de
+//     proyecto no da plazo ni cuota propios); se dice en el texto de ayuda del tipo.
+//
+// Cada decisión se valida con `Schema.validateDecision` antes de entrar en la simulación: los
+// mensajes de error que ve el usuario son los del contrato, no una comprobación paralela que
+// pudiera divergir de él.
+// ---------------------------------------------------------------------------------------------
+const ESCENARIO_MOTOR_ID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+function escenarioMotorNewDecisionId() {
+  let out = "";
+  for (let index = 0; index < 26; index += 1) {
+    out += ESCENARIO_MOTOR_ID_ALPHABET[Math.floor(Math.random() * ESCENARIO_MOTOR_ID_ALPHABET.length)];
+  }
+  return `dec_${out}`;
+}
+
+function escenarioMotorTrim(value, max = 60) {
+  const text = String(value ?? "").trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function escenarioMotorInt(value) {
+  return Number.isFinite(value) ? Math.round(value) : undefined;
+}
+
+// El TIN se pide en % (más legible) y el esquema lo quiere en fracción 0-0,60.
+function escenarioMotorPct(value) {
+  return Number.isFinite(value) ? round2(value * 100) / 10000 : undefined;
+}
+
+const ESCENARIO_MOTOR_TYPES = Object.freeze([
+  {
+    id: "amortizacion",
+    grupo: "Deuda",
+    label: "Amortizar deuda",
+    ayuda: "Un pago único contra el principal en el mes elegido. Si cubre lo que queda, la deuda se cierra.",
+    campos: [
+      { key: "deudaId", kind: "debt", label: "Deuda" },
+      { key: "importe", kind: "money", label: "Importe a amortizar" },
+      { key: "mes", kind: "month", label: "Mes del pago" },
+      { key: "parcial", kind: "checkbox", ancho: true, label: "Tratar siempre como parcial (no cerrar la deuda aunque el importe cubra el principal)" },
+    ],
+    mes: (v) => v.mes,
+    params: (v) => (v.parcial ? { deudaId: v.deudaId, importe: v.importe, parcial: true } : { deudaId: v.deudaId, importe: v.importe }),
+    titulo: (v, h) => `Amortizar ${h.debtLabel(v.deudaId)}`,
+    detalle: (d) => money(d.params?.importe, true),
+    importeTexto: (d) => money(d.params?.importe, true),
+  },
+  {
+    id: "amortizacion_fraccionada",
+    grupo: "Deuda",
+    label: "Amortizar a plazos",
+    ayuda: "Un pago extra mensual durante N meses. Si agota el principal antes, la deuda cierra en el mes real en que eso ocurre.",
+    campos: [
+      { key: "deudaId", kind: "debt", label: "Deuda" },
+      { key: "importeMensual", kind: "money", label: "Importe extra al mes" },
+      { key: "meses", kind: "int", label: "Durante (meses)", min: 1 },
+      { key: "mes", kind: "month", label: "Mes de inicio" },
+    ],
+    mes: (v) => v.mes,
+    params: (v) => ({ deudaId: v.deudaId, importeMensual: v.importeMensual, meses: escenarioMotorInt(v.meses) }),
+    titulo: (v, h) => `Amortizar a plazos ${h.debtLabel(v.deudaId)}`,
+    detalle: (d) => `${money(d.params?.importeMensual, true)}/mes · ${d.params?.meses || 0} meses`,
+    importeTexto: (d) => `${money(d.params?.importeMensual, true)}/mes`,
+  },
+  {
+    id: "refinanciacion",
+    grupo: "Deuda",
+    label: "Refinanciar deuda",
+    ayuda: "Sustituye principal, cuota, TIN y plazo de una deuda desde el mes indicado. Las comisiones aún no se modelan como flujo de caja aparte.",
+    campos: [
+      { key: "deudaId", kind: "debt", label: "Deuda" },
+      { key: "nuevoPrincipal", kind: "money", label: "Nuevo principal" },
+      { key: "nuevaCuota", kind: "money", label: "Nueva cuota mensual" },
+      { key: "nuevoTIN", kind: "pct", label: "Nuevo TIN (%)" },
+      { key: "nuevoPlazo", kind: "int", label: "Nuevo plazo (meses)", min: 1, max: 480 },
+      { key: "mes", kind: "month", label: "Mes en que entra en vigor" },
+    ],
+    mes: (v) => v.mes,
+    params: (v) => ({
+      deudaId: v.deudaId,
+      nuevoPrincipal: v.nuevoPrincipal,
+      nuevoTIN: escenarioMotorPct(v.nuevoTIN),
+      nuevaCuota: v.nuevaCuota,
+      nuevoPlazo: escenarioMotorInt(v.nuevoPlazo),
+    }),
+    titulo: (v, h) => `Refinanciar ${h.debtLabel(v.deudaId)}`,
+    detalle: (d) => `${money(d.params?.nuevaCuota, true)}/mes · ${d.params?.nuevoPlazo || 0} meses`,
+    importeTexto: (d) => money(d.params?.nuevoPrincipal, true),
+  },
+  {
+    id: "reunificacion",
+    grupo: "Deuda",
+    label: "Reunificar varias deudas",
+    ayuda: "Cierra dos o más deudas y abre una cuenta nueva con el capital, cuota y plazo pactados. Mantén pulsado Ctrl (o Cmd) para elegir varias.",
+    campos: [
+      { key: "deudaIds", kind: "debtMulti", label: "Deudas a reunificar (mínimo 2)", ancho: true },
+      { key: "nuevoPrincipal", kind: "money", label: "Principal del nuevo préstamo" },
+      { key: "nuevaCuota", kind: "money", label: "Cuota del nuevo préstamo" },
+      { key: "nuevoTIN", kind: "pct", label: "TIN del nuevo préstamo (%)" },
+      { key: "nuevoPlazo", kind: "int", label: "Plazo (meses)", min: 1, max: 480 },
+      { key: "mes", kind: "month", label: "Mes en que entra en vigor" },
+    ],
+    mes: (v) => v.mes,
+    params: (v) => ({
+      deudaIds: Array.isArray(v.deudaIds) ? v.deudaIds : [],
+      nuevoPrincipal: v.nuevoPrincipal,
+      nuevoTIN: escenarioMotorPct(v.nuevoTIN),
+      nuevaCuota: v.nuevaCuota,
+      nuevoPlazo: escenarioMotorInt(v.nuevoPlazo),
+    }),
+    titulo: (v) => `Reunificar ${Array.isArray(v.deudaIds) ? v.deudaIds.length : 0} deudas`,
+    detalle: (d) => `${money(d.params?.nuevaCuota, true)}/mes · ${(d.params?.deudaIds || []).length} deudas`,
+    importeTexto: (d) => money(d.params?.nuevoPrincipal, true),
+  },
+  {
+    id: "retomar_pagos",
+    grupo: "Deuda",
+    label: "Retomar pagos suspendidos",
+    ayuda: "Solo se ofrece sobre deudas con los pagos suspendidos. El plazo restante no se recalcula: se reutiliza el original.",
+    campos: [
+      { key: "deudaId", kind: "debt", label: "Deuda suspendida", filtro: (contract) => contract.paymentStatus === "suspended", vacio: "Sin deudas con pagos suspendidos" },
+      { key: "cuota", kind: "money", label: "Cuota mensual al retomar" },
+      { key: "mesInicio", kind: "month", label: "Mes en que se retoman" },
+    ],
+    mes: (v) => v.mesInicio,
+    params: (v) => ({ deudaId: v.deudaId, cuota: v.cuota, mesInicio: v.mesInicio }),
+    titulo: (v, h) => `Retomar pagos ${h.debtLabel(v.deudaId)}`,
+    detalle: (d) => `${money(d.params?.cuota, true)}/mes`,
+    importeTexto: (d) => `${money(d.params?.cuota, true)}/mes`,
+  },
+  {
+    id: "acuerdo_quita",
+    grupo: "Deuda",
+    label: "Acuerdo de quita",
+    ayuda: "Cierra la deuda pagando el importe pactado de una vez en el mes elegido. Solo se modela el pago único: un acuerdo fraccionado no tiene cálculo propio todavía.",
+    campos: [
+      { key: "deudaId", kind: "debt", label: "Deuda" },
+      { key: "importePactado", kind: "money", label: "Importe pactado" },
+      { key: "mes", kind: "month", label: "Mes del pago" },
+      { key: "vigenciaHasta", kind: "date", label: "La oferta caduca el" },
+    ],
+    mes: (v) => v.mes,
+    params: (v) => ({ deudaId: v.deudaId, importePactado: v.importePactado, modalidad: "pago_unico", vigenciaHasta: v.vigenciaHasta }),
+    titulo: (v, h) => `Quita ${h.debtLabel(v.deudaId)}`,
+    detalle: (d) => money(d.params?.importePactado, true),
+    importeTexto: (d) => money(d.params?.importePactado, true),
+  },
+  {
+    id: "compra",
+    grupo: "Vida",
+    label: "Compra",
+    ayuda: "Sale de golpe en el mes elegido, o como cuota mensual durante el plazo si la financias.",
+    campos: [
+      { key: "nombre", kind: "text", label: "Qué compras" },
+      { key: "importe", kind: "money", label: "Importe total" },
+      { key: "mes", kind: "month", label: "Mes de la compra" },
+      { key: "financiada", kind: "checkbox", ancho: true, controla: true, label: "La financio" },
+      { key: "finPrincipal", kind: "money", label: "Principal financiado", visibleSi: (v) => v.financiada === true },
+      { key: "finCuota", kind: "money", label: "Cuota mensual", visibleSi: (v) => v.financiada === true },
+      { key: "finTIN", kind: "pct", label: "TIN (%)", visibleSi: (v) => v.financiada === true },
+      { key: "finPlazo", kind: "int", label: "Plazo (meses)", min: 1, max: 480, visibleSi: (v) => v.financiada === true },
+    ],
+    mes: (v) => v.mes,
+    params: (v) => (v.financiada
+      ? {
+        nombre: v.nombre,
+        importe: v.importe,
+        financiacion: { principal: v.finPrincipal, TIN: escenarioMotorPct(v.finTIN), cuota: v.finCuota, plazo: escenarioMotorInt(v.finPlazo) },
+      }
+      : { nombre: v.nombre, importe: v.importe }),
+    titulo: (v) => escenarioMotorTrim(`Compra · ${v.nombre || "sin nombre"}`),
+    detalle: (d) => (d.params?.financiacion
+      ? `${money(d.params.financiacion.cuota, true)}/mes · ${d.params.financiacion.plazo || 0} meses`
+      : money(d.params?.importe, true)),
+    importeTexto: (d) => money(d.params?.importe, true),
+  },
+  {
+    id: "proyecto",
+    grupo: "Vida",
+    label: "Proyecto con fecha objetivo",
+    ayuda: "«Hucha» reparte el importe en cuotas iguales hasta el mes objetivo. «Pago único» y «financiado» lo cargan de golpe en ese mes: el esquema de proyecto no da plazo ni cuota propios, así que hoy no se distinguen numéricamente.",
+    campos: [
+      { key: "nombre", kind: "text", label: "Nombre del proyecto" },
+      { key: "importeObjetivo", kind: "money", label: "Importe objetivo" },
+      { key: "modalidad", kind: "select", label: "Cómo lo pagas", controla: true, opciones: [["hucha", "Hucha (reparto mensual)"], ["pago_unico", "Pago único"], ["financiado", "Financiado"]] },
+      { key: "mesObjetivo", kind: "month", label: "Mes objetivo" },
+      { key: "mes", kind: "month", label: "Mes en que empiezas a apartar", visibleSi: (v) => (v.modalidad || "hucha") === "hucha" },
+    ],
+    mes: (v) => ((v.modalidad || "hucha") === "hucha" ? v.mes || v.mesObjetivo : v.mesObjetivo),
+    params: (v) => ({ nombre: v.nombre, importeObjetivo: v.importeObjetivo, modalidad: v.modalidad || "hucha", mesObjetivo: v.mesObjetivo }),
+    titulo: (v) => escenarioMotorTrim(`Proyecto · ${v.nombre || "sin nombre"}`),
+    detalle: (d) => `${money(d.params?.importeObjetivo, true)} · ${d.params?.modalidad === "hucha" ? "hucha" : "de una vez"}`,
+    importeTexto: (d) => money(d.params?.importeObjetivo, true),
+  },
+  {
+    id: "imprevisto",
+    grupo: "Vida",
+    label: "Imprevisto",
+    ayuda: "Un gasto de golpe en el mes indicado, o repetido cada N meses durante el resto del horizonte.",
+    campos: [
+      { key: "importe", kind: "money", label: "Importe" },
+      { key: "mes", kind: "month", label: "Mes" },
+      { key: "recurrenciaMeses", kind: "int", label: "Se repite cada (meses)", min: 1, opcional: true, ayuda: "Vacío = ocurre una sola vez." },
+    ],
+    mes: (v) => v.mes,
+    params: (v) => (Number.isFinite(v.recurrenciaMeses)
+      ? { importe: v.importe, mes: v.mes, recurrenciaMeses: escenarioMotorInt(v.recurrenciaMeses) }
+      : { importe: v.importe, mes: v.mes }),
+    titulo: (v) => escenarioMotorTrim(`Imprevisto de ${money(v.importe, true)}`),
+    detalle: (d) => (d.params?.recurrenciaMeses ? `${money(d.params.importe, true)} cada ${d.params.recurrenciaMeses} meses` : money(d.params?.importe, true)),
+    importeTexto: (d) => money(d.params?.importe, true),
+  },
+  {
+    id: "cambio_ingreso",
+    grupo: "Vida",
+    label: "Cambio de ingreso",
+    ayuda: "Suma o resta un importe fijo al ingreso mensual entre dos meses. En negativo modela una bajada de sueldo o el fin de un ingreso.",
+    campos: [
+      { key: "titular", kind: "select", label: "Titular", opciones: [["hogar", "Hogar"], ["javi", "Javi"], ["tere", "Tere"]] },
+      { key: "deltaMensual", kind: "number", label: "Cambio mensual (€, negativo si baja)" },
+      { key: "mesInicio", kind: "month", label: "Desde" },
+      { key: "mesFin", kind: "monthOptional", label: "Hasta", ayuda: "Vacío = hasta el final del horizonte." },
+    ],
+    mes: (v) => v.mesInicio,
+    params: (v) => (v.mesFin
+      ? { titular: v.titular || "hogar", deltaMensual: v.deltaMensual, mesInicio: v.mesInicio, mesFin: v.mesFin }
+      : { titular: v.titular || "hogar", deltaMensual: v.deltaMensual, mesInicio: v.mesInicio }),
+    titulo: (v) => escenarioMotorTrim(`Ingreso ${Number(v.deltaMensual) >= 0 ? "+" : ""}${money(v.deltaMensual, true)} · ${v.titular || "hogar"}`),
+    detalle: (d) => `${Number(d.params?.deltaMensual) >= 0 ? "+" : ""}${money(d.params?.deltaMensual, true)}/mes`,
+    importeTexto: (d) => `${Number(d.params?.deltaMensual) >= 0 ? "+" : ""}${money(d.params?.deltaMensual, true)}/mes`,
+  },
+  {
+    id: "cambio_gasto",
+    grupo: "Vida",
+    label: "Cambio de gasto",
+    ayuda: "Sube o baja el gasto corriente entre dos meses, como importe fijo o como porcentaje del gasto de cada mes.",
+    campos: [
+      { key: "bloque", kind: "text", label: "Bloque de gasto" },
+      { key: "modoCambio", kind: "select", label: "Cómo se expresa", controla: true, opciones: [["importe", "Importe fijo al mes"], ["porcentaje", "Porcentaje del gasto"]] },
+      { key: "deltaMensual", kind: "number", label: "Cambio mensual (€, negativo si baja)", visibleSi: (v) => (v.modoCambio || "importe") === "importe" },
+      { key: "deltaPct", kind: "number", label: "Cambio (%, negativo si baja)", visibleSi: (v) => v.modoCambio === "porcentaje" },
+      { key: "mesInicio", kind: "month", label: "Desde" },
+      { key: "mesFin", kind: "monthOptional", label: "Hasta", ayuda: "Vacío = hasta el final del horizonte." },
+    ],
+    mes: (v) => v.mesInicio,
+    params: (v) => {
+      const params = { bloque: v.bloque, mesInicio: v.mesInicio };
+      if (v.modoCambio === "porcentaje") params.deltaPct = escenarioMotorPct(v.deltaPct);
+      else params.deltaMensual = v.deltaMensual;
+      if (v.mesFin) params.mesFin = v.mesFin;
+      return params;
+    },
+    titulo: (v) => escenarioMotorTrim(`Gasto · ${v.bloque || "sin bloque"}`),
+    detalle: (d) => (Number.isFinite(d.params?.deltaPct)
+      ? `${round2(d.params.deltaPct * 100)} %/mes`
+      : `${Number(d.params?.deltaMensual) >= 0 ? "+" : ""}${money(d.params?.deltaMensual, true)}/mes`),
+    importeTexto: (d) => (Number.isFinite(d.params?.deltaPct)
+      ? `${round2(d.params.deltaPct * 100)} %`
+      : `${Number(d.params?.deltaMensual) >= 0 ? "+" : ""}${money(d.params?.deltaMensual, true)}/mes`),
+  },
+]);
+
+let escenarioMotorDraftTipo = ESCENARIO_MOTOR_TYPES[0].id;
+let escenarioMotorDraftValues = {};
+
+function escenarioMotorTypeById(tipo) {
+  return ESCENARIO_MOTOR_TYPES.find((item) => item.id === tipo) || null;
+}
+
+function escenarioMotorVisibleFields(type, values) {
+  if (!type) return [];
+  return type.campos.filter((field) => (typeof field.visibleSi === "function" ? field.visibleSi(values) : true));
+}
+
+// Los campos ocultos por `visibleSi` no cuentan: si la compra no está financiada, sus cuatro
+// campos de financiación no entran en los params aunque el usuario los hubiera rellenado antes.
+function escenarioMotorEffectiveValues(type, values) {
+  const visible = new Set(escenarioMotorVisibleFields(type, values).map((field) => field.key));
+  const effective = {};
+  Object.keys(values).forEach((key) => {
+    if (visible.has(key)) effective[key] = values[key];
+  });
+  return effective;
+}
+
+function escenarioMotorFieldElementId(key) {
+  return `escenarioMotorField_${key}`;
+}
+
+function escenarioMotorMonthOptionsHtml(months, selected, placeholder) {
+  const head = placeholder ? `<option value="">${escapeHtml(placeholder)}</option>` : "";
+  return head + months
+    .map((month) => `<option value="${escapeHtml(month.monthKey)}"${month.monthKey === selected ? " selected" : ""}>${escapeHtml(month.month)}</option>`)
+    .join("");
+}
+
+function escenarioMotorFieldControlHtml(field, months, values) {
+  const id = escenarioMotorFieldElementId(field.key);
+  const attrs = `id="${id}" data-escenario-motor-field="${escapeHtml(field.key)}"`;
+  const value = values[field.key];
+  const numberAttrs = `${field.min !== undefined ? ` min="${field.min}"` : ""}${field.max !== undefined ? ` max="${field.max}"` : ""}`;
+  switch (field.kind) {
+    case "debt":
+    case "debtMulti": {
+      const debts = escenarioMotorDebtOptions().filter(field.filtro || (() => true));
+      if (!debts.length) return `<select ${attrs}${field.kind === "debtMulti" ? " multiple size=\"4\"" : ""}><option value="">${escapeHtml(field.vacio || "Sin deudas vivas")}</option></select>`;
+      const selected = field.kind === "debtMulti" ? new Set(Array.isArray(value) ? value : []) : new Set(value ? [value] : []);
+      const options = debts
+        .map((contract) => `<option value="${escapeHtml(contract.id)}"${selected.has(contract.id) ? " selected" : ""}>${escapeHtml(escenarioMotorDebtLabel(contract))} · ${money(contract.currentPrincipal, true)}</option>`)
+        .join("");
+      return `<select ${attrs}${field.kind === "debtMulti" ? ` multiple size="${Math.min(6, Math.max(3, debts.length))}"` : ""}>${options}</select>`;
+    }
+    case "month":
+      return `<select ${attrs}>${escenarioMotorMonthOptionsHtml(months, value, null)}</select>`;
+    case "monthOptional":
+      return `<select ${attrs}>${escenarioMotorMonthOptionsHtml(months, value, "Hasta el final del horizonte")}</select>`;
+    case "select":
+      return `<select ${attrs}>${(field.opciones || [])
+        .map(([optionValue, optionLabel]) => `<option value="${escapeHtml(optionValue)}"${optionValue === value ? " selected" : ""}>${escapeHtml(optionLabel)}</option>`)
+        .join("")}</select>`;
+    case "checkbox":
+      return `<input ${attrs} type="checkbox"${value === true ? " checked" : ""} />`;
+    case "money":
+      return `<input ${attrs} type="number" min="0.01" step="0.01" placeholder="€" value="${value === undefined ? "" : escapeHtml(String(value))}" />`;
+    case "pct":
+      return `<input ${attrs} type="number" step="0.01" placeholder="%" value="${value === undefined ? "" : escapeHtml(String(value))}"${numberAttrs} />`;
+    case "int":
+      return `<input ${attrs} type="number" step="1"${numberAttrs} value="${value === undefined ? "" : escapeHtml(String(value))}" />`;
+    case "number":
+      return `<input ${attrs} type="number" step="0.01" placeholder="€" value="${value === undefined ? "" : escapeHtml(String(value))}" />`;
+    case "date":
+      return `<input ${attrs} type="date" value="${value === undefined ? "" : escapeHtml(String(value))}" />`;
+    default:
+      return `<input ${attrs} type="text" maxlength="60" value="${value === undefined ? "" : escapeHtml(String(value))}" />`;
+  }
+}
+
+function escenarioMotorFieldHtml(field, months, values) {
+  const control = escenarioMotorFieldControlHtml(field, months, values);
+  const hint = field.ayuda ? `<small class="e19-kpi-note">${escapeHtml(field.ayuda)}</small>` : "";
+  const classes = ["escenario-motor-field"];
+  // Los selectores de deuda llevan entidad, tipo e importe: a media columna se recortan justo en la
+  // parte que distingue una deuda de otra, así que ocupan la fila entera.
+  if (field.ancho || field.kind === "debt" || field.kind === "debtMulti") classes.push("escenario-motor-field-wide");
+  if (field.kind === "checkbox") classes.push("escenario-motor-field-check");
+  const hidden = typeof field.visibleSi === "function" && !field.visibleSi(values) ? " hidden" : "";
+  const body = field.kind === "checkbox"
+    ? `${control}<span>${escapeHtml(field.label)}</span>${hint}`
+    : `<span>${escapeHtml(field.label)}</span>${control}${hint}`;
+  return `<label class="${classes.join(" ")}" data-escenario-motor-field-wrap="${escapeHtml(field.key)}"${hidden}>${body}</label>`;
+}
+
+function escenarioMotorReadFieldValue(field, element) {
+  if (!element) return undefined;
+  if (field.kind === "checkbox") return element.checked;
+  if (field.kind === "debtMulti") return Array.from(element.selectedOptions || []).map((option) => option.value).filter(Boolean);
+  const raw = String(element.value ?? "").trim();
+  if (raw === "") return undefined;
+  if (["money", "number", "int", "pct"].includes(field.kind)) {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return raw;
+}
+
+function escenarioMotorSyncDraftValues() {
+  const type = escenarioMotorTypeById(escenarioMotorDraftTipo);
+  const container = qs("escenarioMotorFields");
+  if (!type || !container) return;
+  type.campos.forEach((field) => {
+    const element = qs(escenarioMotorFieldElementId(field.key));
+    if (!element) return;
+    escenarioMotorDraftValues[field.key] = escenarioMotorReadFieldValue(field, element);
+  });
+}
+
+function escenarioMotorSyncFieldVisibility() {
+  const type = escenarioMotorTypeById(escenarioMotorDraftTipo);
+  const container = qs("escenarioMotorFields");
+  if (!type || !container) return;
+  type.campos.forEach((field) => {
+    if (typeof field.visibleSi !== "function") return;
+    const wrap = container.querySelector(`[data-escenario-motor-field-wrap="${field.key}"]`);
+    if (wrap) wrap.hidden = !field.visibleSi(escenarioMotorDraftValues);
+  });
+}
+
+// Rebusca opciones (deudas y meses) en cada render para que no queden obsoletas, pero se abstiene
+// si el usuario tiene el foco dentro del formulario: reconstruirlo bajo sus dedos le haría perder
+// el cursor a media escritura.
+function renderEscenarioMotorForm(baseInput) {
+  const typeSelect = qs("escenarioMotorType");
+  const container = qs("escenarioMotorFields");
+  const hint = qs("escenarioMotorTypeHint");
+  if (!typeSelect || !container) return;
+
+  if (!typeSelect.childElementCount) {
+    const grupos = [];
+    ESCENARIO_MOTOR_TYPES.forEach((type) => {
+      const grupo = grupos.find((item) => item.nombre === type.grupo);
+      if (grupo) grupo.tipos.push(type);
+      else grupos.push({ nombre: type.grupo, tipos: [type] });
+    });
+    typeSelect.innerHTML = grupos
+      .map((grupo) => `<optgroup label="${escapeHtml(grupo.nombre)}">${grupo.tipos
+        .map((type) => `<option value="${escapeHtml(type.id)}">${escapeHtml(type.label)}</option>`)
+        .join("")}</optgroup>`)
+      .join("");
+  }
+  typeSelect.value = escenarioMotorDraftTipo;
+
+  const type = escenarioMotorTypeById(escenarioMotorDraftTipo);
+  if (hint) hint.textContent = type?.ayuda || "";
+  if (!type) return;
+
+  if (container.contains(document.activeElement)) {
+    escenarioMotorSyncFieldVisibility();
+    return;
+  }
+  escenarioMotorSyncDraftValues();
+  container.innerHTML = type.campos
+    .map((field) => escenarioMotorFieldHtml(field, baseInput.months, escenarioMotorDraftValues))
+    .join("");
+  container.dataset.tipo = type.id;
+  // Los desplegables no admiten «sin valor»: lo que muestran ya es el valor efectivo, así que se
+  // vuelca al borrador para que `params()` vea lo mismo que el usuario.
+  escenarioMotorSyncDraftValues();
+  escenarioMotorSyncFieldVisibility();
+}
+
+function escenarioMotorShowFormErrors(messages) {
+  const box = qs("escenarioMotorFormError");
+  const list = qs("escenarioMotorFormErrorList");
+  if (!box || !list) return;
+  if (!messages.length) {
+    box.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  list.innerHTML = messages.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
+}
+
+// Traduce el `path` que devuelve el contrato ($.params.importe) al rótulo del campo, para que el
+// mensaje señale el control que hay que rellenar en vez de un nombre técnico.
+function escenarioMotorIssueMessage(issue, type) {
+  const key = String(issue.path || "").split(".").pop();
+  const field = type.campos.find((item) => item.key === key || (item.key === "mes" && key === "mesManual"));
+  return field ? `${field.label}: ${issue.message}` : issue.message;
 }
 
 // Traduce los códigos de rechazo reales del motor (canonical-scenario-engine.js) a texto legible.
@@ -18090,14 +18539,38 @@ function escenarioMotorResultInfo(resultado) {
     "deuda-desconocida": { text: "Rechazada: deuda no encontrada", badge: "e19-badge-danger" },
     "sin-objetivo": { text: "Rechazada: falta indicar la deuda", badge: "e19-badge-danger" },
     "sin-mes-viable": { text: "Rechazada: ningún mes del horizonte la sostiene", badge: "e19-badge-danger" },
+    "tipo-no-soportado-aun": { text: "Rechazada: el motor no resuelve este tipo todavía", badge: "e19-badge-danger" },
+    inactiva: { text: "Desactivada", badge: "e19-badge-neutral" },
   };
   return table[resultado] || { text: resultado, badge: "e19-badge-neutral" };
+}
+
+// `resultado: "rechazada"` viene siempre acompañado de un `motivo` del propio aplicador; sin él, el
+// texto genérico sería inútil para decidir qué corregir.
+function escenarioMotorRejectionInfo(resultado) {
+  if (resultado?.resultado !== "rechazada") return null;
+  const table = {
+    "deuda-no-suspendida": "Rechazada: esa deuda no tiene los pagos suspendidos",
+    "sin-objetivo": "Rechazada: falta indicar la deuda",
+  };
+  const text = table[resultado.motivo];
+  return { text: text || `Rechazada: ${resultado.motivo || "sin motivo declarado"}`, badge: "e19-badge-danger" };
 }
 
 function escenarioMotorEfectoLabel(efecto) {
   const table = {
     "cierre-total": "Amortización total · deuda cerrada",
     "amortizacion-parcial": "Amortización parcial",
+    "cierre-total-fraccionado": "Amortización a plazos · deuda cerrada",
+    "amortizacion-fraccionada-parcial": "Amortización a plazos parcial",
+    refinanciada: "Deuda refinanciada",
+    "pagos-reanudados": "Pagos retomados",
+    reunificada: "Deudas reunificadas",
+    compra: "Compra añadida al plan",
+    imprevisto: "Imprevisto añadido al plan",
+    proyecto: "Proyecto añadido al plan",
+    cambio_ingreso: "Ingreso mensual ajustado",
+    cambio_gasto: "Gasto mensual ajustado",
   };
   return table[efecto] || efecto || "";
 }
@@ -18225,18 +18698,51 @@ function escenarioMotorNavigate(viewId) {
   setActiveView(viewId);
 }
 
+// Los escenarios guardados antes de E20-3 no llevan `titulo` (solo existía amortización), igual que
+// las rutas que llegan desde el comparador de estrategias. Se reconstruye con el mismo generador de
+// título del catálogo, que solo lee claves presentes también en `params`.
+function escenarioMotorDecisionTitle(decision, debts) {
+  if (decision.titulo) return decision.titulo;
+  const type = escenarioMotorTypeById(decision.tipo);
+  if (!type) return decision.tipo || "Decisión";
+  const debtLabel = (deudaId) => {
+    const contract = debts?.get(deudaId);
+    return contract ? escenarioMotorDebtLabel(contract) : escenarioMotorDebtLabelById(deudaId);
+  };
+  return escenarioMotorTrim(type.titulo(decision.params || {}, { debtLabel }) || type.label);
+}
+
+function escenarioMotorDecisionDetail(decision) {
+  const type = escenarioMotorTypeById(decision.tipo);
+  return type && typeof type.detalle === "function" ? type.detalle(decision) : "";
+}
+
+function escenarioMotorDecisionAmountText(decision) {
+  const type = escenarioMotorTypeById(decision.tipo);
+  return type && typeof type.importeTexto === "function" ? type.importeTexto(decision) : "—";
+}
+
+// El mes efectivo depende del tipo: la planificación lo lleva en los tipos de deuda y en compra,
+// pero `imprevisto`, `retomar_pagos` y los cambios de ingreso/gasto lo llevan en sus propios params.
+function escenarioMotorDecisionMonthKey(decision, resultado) {
+  return resultado?.mesResuelto
+    || decision.planificacion?.mesResuelto
+    || decision.planificacion?.mesManual
+    || decision.params?.mes
+    || decision.params?.mesInicio
+    || decision.params?.mesObjetivo
+    || null;
+}
+
 function escenarioMotorDraftName() {
   const debts = new Map(canonicalDebtContractRows().map((contract) => [contract.id, contract]));
-  const parts = escenarioMotorDecisions.map((decision) => {
-    const contract = debts.get(decision.params.deudaId);
-    return `Amortizar ${contract ? escenarioMotorDebtLabel(contract) : decision.params.deudaId}`;
-  });
+  const parts = escenarioMotorDecisions.map((decision) => escenarioMotorDecisionTitle(decision, debts));
   return parts.join(" + ") || "Escenario sin nombre";
 }
 
 function renderEscenarioSimular() {
   const baseInput = escenarioMotorBaseInput();
-  populateEscenarioMotorControls(baseInput);
+  renderEscenarioMotorForm(baseInput);
 
   const guardrailField = qs("escenarioMotorGuardrail");
   if (guardrailField && document.activeElement !== guardrailField) {
@@ -18272,16 +18778,17 @@ function renderEscenarioSimular() {
 
   body.innerHTML = escenarioMotorDecisions
     .map((decision) => {
-      const contract = debts.get(decision.params.deudaId);
       const resultado = resultadosById.get(decision.id);
-      const info = resultado ? escenarioMotorResultInfo(resultado.resultado) : { text: "Sin calcular", badge: "e19-badge-neutral" };
+      const info = (resultado && escenarioMotorRejectionInfo(resultado))
+        || (resultado ? escenarioMotorResultInfo(resultado.resultado) : { text: "Sin calcular", badge: "e19-badge-neutral" });
       const mesLabel = decision.planificacion.modo === "optimo"
         ? (resultado?.mesResuelto ? `Óptimo · ${escenarioMotorMonthLabel(resultado.mesResuelto)}` : "Buscando mes óptimo…")
-        : escenarioMotorMonthLabel(decision.planificacion.mesManual);
+        : escenarioMotorMonthLabel(escenarioMotorDecisionMonthKey(decision, resultado));
+      const detalle = escenarioMotorDecisionDetail(decision);
       return `<li class="escenario-motor-decision-item">
         <div class="escenario-motor-decision-main">
-          <strong>${escapeHtml(contract ? escenarioMotorDebtLabel(contract) : decision.params.deudaId)}</strong>
-          <span>${money(decision.params.importe, true)} · ${escapeHtml(mesLabel)}</span>
+          <strong>${escapeHtml(escenarioMotorDecisionTitle(decision, debts))}</strong>
+          <span>${escapeHtml(detalle ? `${detalle} · ${mesLabel}` : mesLabel)}</span>
         </div>
         <div class="escenario-motor-decision-status">
           <span class="e19-badge ${info.badge}">${escapeHtml(info.text)}</span>
@@ -18306,7 +18813,7 @@ function renderEscenarioSimular() {
 
   if (rejected.length) {
     if (warning) warning.hidden = false;
-    const info = escenarioMotorResultInfo(rejected[0].resultado);
+    const info = escenarioMotorRejectionInfo(rejected[0]) || escenarioMotorResultInfo(rejected[0].resultado);
     if (warningText) {
       warningText.textContent = rejected.length > 1
         ? `${info.text} (y ${rejected.length - 1} decisión(es) más sin aplicar).`
@@ -18320,23 +18827,74 @@ function renderEscenarioSimular() {
   }
 }
 
+// Construye la decisión desde el borrador y la valida con el contrato antes de aceptarla. Si el
+// contrato la rechaza no se añade nada: se muestran sus propios mensajes, campo a campo, en vez de
+// dejar entrar una decisión que el motor resolvería a medias o ignoraría.
 function handleEscenarioMotorSubmit(event) {
   event.preventDefault();
-  const deudaId = qs("escenarioMotorDebt")?.value;
-  const importe = Number(qs("escenarioMotorAmount")?.value);
-  const mesManual = qs("escenarioMotorMonth")?.value;
-  if (!deudaId || !Number.isFinite(importe) || importe <= 0 || !mesManual) return;
-  escenarioMotorSeq += 1;
-  escenarioMotorDecisions.push({
-    id: `escenario-motor-${escenarioMotorSeq}`,
-    tipo: "amortizacion",
+  const type = escenarioMotorTypeById(escenarioMotorDraftTipo);
+  if (!type) return;
+  escenarioMotorSyncDraftValues();
+  const values = escenarioMotorEffectiveValues(type, escenarioMotorDraftValues);
+  const mesManual = type.mes(values);
+
+  const decision = {
+    id: escenarioMotorNewDecisionId(),
+    tipo: type.id,
+    titulo: escenarioMotorTrim(type.titulo(values, { debtLabel: escenarioMotorDebtLabelById }) || type.label),
     activa: true,
     orden: escenarioMotorDecisions.length,
-    planificacion: { modo: "manual", mesManual },
-    params: { deudaId, importe },
-  });
-  qs("escenarioMotorAmount").value = "";
+    planificacion: mesManual ? { modo: "manual", mesManual } : { modo: "optimo" },
+    params: type.params(values),
+  };
+
+  const issues = [];
+  const schema = window.FinanceCanonicalScenarioSchema;
+  if (schema) schema.validateDecision(decision, "$", issues);
+  const errors = issues.filter((issue) => issue.severity === "error");
+  if (errors.length) {
+    escenarioMotorShowFormErrors(errors.map((issue) => escenarioMotorIssueMessage(issue, type)));
+    return;
+  }
+
+  escenarioMotorShowFormErrors([]);
+  escenarioMotorDecisions.push(decision);
+  escenarioMotorResetDraft(type);
   renderEscenarioSimular();
+}
+
+function escenarioMotorDebtLabelById(deudaId) {
+  const contract = canonicalDebtContractRows().find((item) => item.id === deudaId);
+  return contract ? escenarioMotorDebtLabel(contract) : deudaId || "deuda sin identificar";
+}
+
+// Tras añadir una decisión se vacían los importes y textos, pero se conservan los desplegables
+// (deuda, mes, titular…): encadenar dos decisiones sobre el mismo mes es el caso normal.
+function escenarioMotorResetDraft(type) {
+  type.campos.forEach((field) => {
+    if (["money", "number", "int", "pct", "text", "date"].includes(field.kind)) delete escenarioMotorDraftValues[field.key];
+    if (field.kind === "checkbox") escenarioMotorDraftValues[field.key] = false;
+  });
+}
+
+function handleEscenarioMotorTypeChange(event) {
+  escenarioMotorSyncDraftValues();
+  escenarioMotorDraftTipo = event.target.value;
+  escenarioMotorShowFormErrors([]);
+  renderEscenarioMotorForm(escenarioMotorBaseInput());
+}
+
+// Solo reacciona a los campos que gobiernan la visibilidad de otros (la casilla «la financio», el
+// selector de modalidad…); el resto se lee al enviar, para no reconstruir el formulario mientras se
+// escribe en él.
+function handleEscenarioMotorFieldChange(event) {
+  const key = event.target?.dataset?.escenarioMotorField;
+  if (!key) return;
+  const type = escenarioMotorTypeById(escenarioMotorDraftTipo);
+  const field = type?.campos.find((item) => item.key === key);
+  if (!field) return;
+  escenarioMotorDraftValues[key] = escenarioMotorReadFieldValue(field, event.target);
+  if (field.controla) escenarioMotorSyncFieldVisibility();
 }
 
 function handleEscenarioMotorRemove(id) {
@@ -18404,15 +18962,15 @@ function renderEscenarioAplicar() {
   if (body) {
     body.innerHTML = escenarioMotorDecisions
       .map((decision) => {
-        const contract = debts.get(decision.params.deudaId);
         const resultado = resultadosById.get(decision.id);
-        const info = resultado ? escenarioMotorResultInfo(resultado.resultado) : { text: "Sin calcular", badge: "e19-badge-neutral" };
+        const info = (resultado && escenarioMotorRejectionInfo(resultado))
+          || (resultado ? escenarioMotorResultInfo(resultado.resultado) : { text: "Sin calcular", badge: "e19-badge-neutral" });
         const efecto = resultado?.efecto ? escenarioMotorEfectoLabel(resultado.efecto) : info.text;
-        const mesLabel = escenarioMotorMonthLabel(resultado?.mesResuelto || decision.planificacion.mesManual);
+        const mesLabel = escenarioMotorMonthLabel(escenarioMotorDecisionMonthKey(decision, resultado));
         return `<tr>
-          <td>${escapeHtml(contract ? escenarioMotorDebtLabel(contract) : decision.params.deudaId)}</td>
+          <td>${escapeHtml(escenarioMotorDecisionTitle(decision, debts))}</td>
           <td>${escapeHtml(efecto)}</td>
-          <td>${money(decision.params.importe, true)}</td>
+          <td>${escapeHtml(escenarioMotorDecisionAmountText(decision))}</td>
           <td>${escapeHtml(mesLabel)}</td>
         </tr>`;
       })
@@ -18518,7 +19076,6 @@ function handleEscenarioGuardadosLoad(id) {
   const entry = loadEscenarioMotorSaved().find((item) => item.id === id);
   if (!entry) return;
   escenarioMotorDecisions = JSON.parse(JSON.stringify(entry.decisiones || []));
-  escenarioMotorSeq = escenarioMotorDecisions.length;
   escenarioMotorGuardrailValue = entry.guardrailValue ?? null;
   escenarioMotorNavigate("escenario-simular");
 }
@@ -18644,9 +19201,7 @@ function debtStrategyRecommended(summaries) {
 }
 
 function debtStrategyDecisionsToEscenario(strategyId) {
-  const decisions = debtStrategyDecisions(strategyId);
-  escenarioMotorSeq += decisions.length;
-  escenarioMotorDecisions = decisions.map((decision, index) => ({ ...decision, id: `escenario-motor-${escenarioMotorSeq - decisions.length + index + 1}` }));
+  escenarioMotorDecisions = debtStrategyDecisions(strategyId).map((decision) => ({ ...decision, id: escenarioMotorNewDecisionId() }));
   escenarioMotorGuardrailValue = debtStrategyReserveValue;
 }
 
@@ -19662,6 +20217,9 @@ async function init() {
     }
   });
   qs("escenarioMotorForm")?.addEventListener("submit", handleEscenarioMotorSubmit);
+  qs("escenarioMotorType")?.addEventListener("change", handleEscenarioMotorTypeChange);
+  qs("escenarioMotorFields")?.addEventListener("change", handleEscenarioMotorFieldChange);
+  qs("escenarioMotorFields")?.addEventListener("input", handleEscenarioMotorFieldChange);
   qs("escenarioMotorDecisionsList")?.addEventListener("click", (event) => {
     const removeButton = event.target.closest("[data-escenario-motor-remove]");
     if (removeButton) handleEscenarioMotorRemove(removeButton.dataset.escenarioMotorRemove);

@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.webmanifest?v=20260808e18a4" />
     <link rel="stylesheet" href="styles.css?v=20260808e18a4" />
     <link rel="stylesheet" href="p2.css?v=20260801e9c" />
-    <link rel="stylesheet" href="design-tokens.css?v=20260809e20b4" />
+    <link rel="stylesheet" href="design-tokens.css?v=20260809e20c1" />
   </head>
   <body>
     <a class="skip-link" href="#mainContent">Saltar al contenido</a>
@@ -817,7 +817,7 @@
               <div>
                 <p class="panel-kicker e19-eyebrow">Decidir · escenario</p>
                 <h2 class="e19-heading">Prueba una vida distinta sin tocar el plan</h2>
-                <p class="e19-subtitle">Primera pieza del motor unificado (E20) conectada a la interfaz. Por ahora solo amortizar deuda — el resto de tipos de decisión se añade en próximas fases. Cada decisión se resuelve de verdad: aplicada o rechazada con motivo, nunca un número inventado.</p>
+                <p class="e19-subtitle">Motor unificado (E20) conectado a la interfaz, con los once tipos de decisión que resuelve de verdad: seis sobre deuda y cinco sobre ingresos, gastos, compras, proyectos e imprevistos. Cada decisión se valida contra el contrato y se resuelve de verdad: aplicada o rechazada con motivo, nunca un número inventado.</p>
               </div>
               <div class="visual-controls">
                 <span class="e19-badge e19-badge-neutral">Modo simulación · nada se guarda</span>
@@ -828,26 +828,25 @@
               <article class="e19-card escenario-motor-controls">
                 <h3 class="escenario-motor-panel-title">Qué cambias</h3>
                 <form id="escenarioMotorForm">
-                  <div class="escenario-motor-form-grid">
-                    <label>
-                      <span>Deuda</span>
-                      <select id="escenarioMotorDebt"></select>
-                    </label>
-                    <label>
-                      <span>Importe a amortizar</span>
-                      <input id="escenarioMotorAmount" type="number" min="0.01" step="0.01" placeholder="€" required />
-                    </label>
-                    <label>
-                      <span>Mes</span>
-                      <select id="escenarioMotorMonth"></select>
-                    </label>
-                    <label>
-                      <span>Saldo mínimo a respetar (opcional)</span>
-                      <input id="escenarioMotorGuardrail" type="number" min="0" step="0.01" placeholder="€, vacío = sin guardarraíl" />
-                    </label>
+                  <label class="escenario-motor-type-label">
+                    <span>Tipo de decisión</span>
+                    <select id="escenarioMotorType"></select>
+                  </label>
+                  <p class="e19-kpi-note escenario-motor-type-hint" id="escenarioMotorTypeHint"></p>
+                  <div class="escenario-motor-form-grid" id="escenarioMotorFields"></div>
+                  <div class="e19-insight is-warn escenario-motor-form-error" id="escenarioMotorFormError" hidden>
+                    <div>
+                      <strong>Faltan datos para esta decisión</strong>
+                      <ul id="escenarioMotorFormErrorList"></ul>
+                    </div>
                   </div>
                   <button type="submit" class="e19-btn e19-btn-primary">Añadir a la simulación</button>
                 </form>
+
+                <label class="escenario-motor-guardrail-label">
+                  <span>Saldo mínimo a respetar en toda la simulación (opcional)</span>
+                  <input id="escenarioMotorGuardrail" type="number" min="0" step="0.01" placeholder="€, vacío = sin guardarraíl" />
+                </label>
 
                 <h3 class="escenario-motor-panel-title escenario-motor-panel-title-spaced">Decisiones de esta simulación</h3>
                 <p class="e19-subtitle" id="escenarioMotorEmpty">Todavía no has añadido ninguna decisión.</p>
@@ -894,7 +893,7 @@
                 <h3 class="escenario-motor-panel-title" id="escenarioAplicarChangesTitle">Cambios en el plan</h3>
                 <div class="table-wrap">
                   <table class="e19-table">
-                    <thead><tr><th>Deuda</th><th>Cambio</th><th>Importe</th><th>Mes</th></tr></thead>
+                    <thead><tr><th>Decisión</th><th>Cambio</th><th>Importe</th><th>Mes</th></tr></thead>
                     <tbody id="escenarioAplicarDiffBody"></tbody>
                   </table>
                 </div>
@@ -2799,7 +2798,7 @@
     <script src="canonical-e9-banking.js?v=20260801e9b"></script>
     <script src="canonical-e9-bank-import.js?v=20260801e9b"></script>
     <script src="canonical-e11b-inbox.js?v=20260801e11b1"></script>
-    <script src="e17-experience.js?v=20260809e20b4"></script>
+    <script src="e17-experience.js?v=20260809e20c1"></script>
     <script src="e18-health.js?v=20260808e18a4"></script>
     <script src="canonical-decisions.js?v=20260714d"></script>
     <script src="canonical-commit-barrier.js?v=20260718p05"></script>
