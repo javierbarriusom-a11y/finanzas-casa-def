@@ -1,6 +1,186 @@
 # Estado del proyecto
 
-Fecha de revisión: 8 de agosto de 2026.
+Fecha de revisión: 9 de agosto de 2026.
+
+## Decisión de publicación: un único sitio en desarrollo
+
+A petición del usuario se creó una copia fija del repositorio en
+`javierbarriusom-a11y/contabilidadcasa`
+(`https://javierbarriusom-a11y.github.io/contabilidadcasa/`), foto de este
+mismo estado (E19 completo + E20-0 días 1-4). El usuario confirmó
+explícitamente que esa copia **no se toca más**: todo el trabajo futuro sigue
+exclusivamente en este repositorio y su sitio actual
+(`https://javierbarriusom-a11y.github.io/finanzas-casa-def/`), que queda
+"como está". Documentado también en `CLAUDE.md` para que esta regla se
+respete automáticamente sin que el usuario tenga que repetirla en cada
+sesión.
+
+## Cierre de sesión — E20-0, día 4: tipos de decisión fuera del alcance original de F1
+
+- A petición expresa del usuario, se implementan los tipos de decisión que no tocan deuda y
+  quedaban fuera del alcance original de F1: `imprevisto`, `proyecto`, `cambio_ingreso` y
+  `cambio_gasto`. Reutilizan `projectOutflow`/`income`/`coreSpend` como bucket genérico, igual que
+  `compra`, y participan en la búsqueda de mes óptimo del día 3 sin cambios en su mecanismo.
+  - `imprevisto`: gasto de golpe en `mes`, o repetido cada `recurrenciaMeses` durante el resto del
+    horizonte si se declara.
+  - `proyecto`: modalidad «hucha» reparte `importeObjetivo` en cuotas iguales desde el mes resuelto
+    hasta `mesObjetivo`; «pago_unico» y «financiado» lo cargan de golpe en `mesObjetivo` (el
+    esquema de `proyecto` no da plazo/cuota propios como sí hace `compra`, así que «financiado» no
+    puede distinguirse numéricamente de «pago_unico» hoy — documentado explícitamente, no fingido).
+  - `cambio_ingreso` / `cambio_gasto`: delta mensual (importe fijo, o para gasto también porcentaje
+    fraccionario del gasto de ese mes) aplicado desde `mesInicio` hasta `mesFin`, o hasta el final
+    del horizonte si no se declara `mesFin`.
+- **Dos tipos siguen sin soportarse, no por omisión sino por un límite real del contrato de entrada
+  de `canonical-engine`**, documentado explícitamente en el módulo en vez de forzar un número
+  fabricado:
+  - `traspaso`: mover saldo entre cuentas no cambia la liquidez total, pero
+    `canonical-engine.buildRows` no acepta un ajuste puntual del reparto checking/savings por mes
+    — solo calcula `saving` a partir de la política declarada. Modelarlo bien exige ampliar el
+    motor canónico, no este envoltorio.
+  - `cambio_presupuesto`: un techo presupuestario es un objetivo a vigilar, no un flujo de caja;
+    aplicarlo como si moviera `coreSpend` fabricaría un gasto que nadie ha declarado todavía.
+- Con esto, de los 13 tipos de decisión del esquema, 11 tienen efecto financiero real en
+  `resolveEscenario` (los seis de deuda, compra, proyecto, imprevisto, cambio_ingreso y
+  cambio_gasto) y los otros 2 (`traspaso`, `cambio_presupuesto`) quedan fuera de alcance
+  documentado explícitamente, no como pendientes silenciosos.
+- 403 pruebas (403 pass, 0 `test.todo`), `npm run verify` en verde.
+- Trabajo pendiente de publicar en la rama `claude/repo-analysis-3dupjd` mediante el PR #1
+  (borrador).
+
+## Cierre de sesión — E20-0, día 3: amortización fraccionada y mes óptimo
+
+- `E19_INFORME_FINAL.md` §4 recomendaba aplazar `amortizacion_fraccionada` (C004) y
+  `planificacion.modo === "optimo"` (mes óptimo, C003) a F2/F3 porque no bloqueaban que F1 fuera
+  útil con los otros cinco tipos de deuda. A petición expresa del usuario, se implementan ya en
+  E20-0 en vez de esperar.
+- **`amortizacion_fraccionada`** se incorpora a `DEBT_DECISION_TYPES`: pago mensual recurrente de
+  `importeMensual` durante `meses`. Si `importeMensual × meses` alcanza el principal antes de
+  agotar `meses` declarados, la deuda cierra en el **mes real** en que eso ocurre (no en el
+  declarado, que puede ser mayor) — verificado con un caso donde 900 € de principal se agotan en 3
+  meses de los 6 declarados. Si no lo alcanza, la deuda sigue activa con el principal reducido y su
+  cuota original intacta, la misma simplificación que ya usaba la amortización parcial.
+- **Mes óptimo** (`modo:"optimo"`) se resuelve en `resolveEscenario`: busca, en orden cronológico
+  entre los meses del horizonte, el primero en el que la decisión no rompa
+  `guardarrailes.saldoMinimoAbsoluto` — reutilizando exactamente el mismo mecanismo de comprobación
+  y deshecho (`guardarril-incumplido`) del día 2. Es una interpretación deliberadamente limitada de
+  «óptimo»: el primer mes viable, no el más barato ni el de mejor VAN. Sin guardarraíles declarados
+  no hay nada que buscar y se usa directamente el primer mes del horizonte. Si ningún mes es
+  viable, se rechaza explícitamente (`sin-mes-viable`) en vez de forzar uno — nunca deja rastro en
+  la serie compuesta.
+- Un caso combinado (amortizar una deuda en modo manual + comprar financiado en modo óptimo, con
+  guardarraíl) demuestra el mecanismo completo: el buscador de mes óptimo se beneficia de la cuota
+  liberada por la amortización resuelta antes y encuentra el primer mes viable dos meses después de
+  que empiece a liberarse esa cuota, en vez de en el mes 1.
+- 399 pruebas (399 pass, 0 `test.todo`), `npm run verify` en verde.
+- Trabajo pendiente de publicar en la rama `claude/repo-analysis-3dupjd` mediante el PR #1
+  (borrador).
+
+## Cierre de sesión — E20-0, día 2: efecto cascada y cierre de I-09
+
+- `canonical-scenario-engine.js` gana `resolveEscenario(decisiones, context)`: compone la serie
+  mensual real delegando en `canonical-engine.buildRows` — no reimplementa la aritmética de
+  liquidez, solo transforma `months[]` según las decisiones resueltas, igual que el resto de
+  módulos E14 envuelven en vez de sustituir. Cada deuda tocada por una decisión reemplaza su
+  aportación a `refi` desde el mes resuelto en adelante (los meses anteriores quedan intactos por
+  construcción, delta cero); una `compra` aporta a `projectOutflow`, de golpe o financiada.
+- **I-09 (escenario vacío ≡ Plan canónico) queda cerrada**: con 0 decisiones, `resolveEscenario`
+  reproduce exactamente `Engine.buildRows(baseInput)`, verificado con una prueba directa además de
+  la de `tests/canonical-scenario-invariants.test.cjs`. Ya no queda ningún `test.todo` pendiente:
+  las 9 invariantes verificables sin guardarraíles/Monte Carlo/presupuesto (I-01 a I-09) están
+  todas cubiertas hoy.
+- **C040/C041 (efecto cascada, el criterio de aceptación real de E20-0 según** `E19_INFORME_FINAL.md` **§4) quedan resueltos**: cuando el escenario declara
+  `guardarrailes.saldoMinimoAbsoluto`, cada decisión con efecto en la serie se comprueba contra la
+  liquidez mínima resultante hasta ese punto de la resolución — y se rechaza explícitamente
+  (`guardarril-incumplido`) si la rompe, en vez de aceptarla en silencio. Una prueba con las mismas
+  dos decisiones (amortizar una deuda + comprar financiado) en los dos órdenes de resolución
+  produce resultados distintos: la compra se aplica cuando se resuelve después de amortizar (la
+  cuota liberada deja liquidez mínima suficiente) y se rechaza cuando se resuelve antes (sin la
+  cuota liberada, la misma compra rompería el guardarraíl) — el resultado numérico final difiere
+  según el orden, y ambos son correctos respecto al guardarraíl declarado.
+- Simplificaciones documentadas del día 2 (no afectan a los cinco tipos de deuda ni a compra en sí,
+  solo a su detalle financiero): solo se compone la serie de decisiones con
+  `planificacion.modo === "manual"` (mes resuelto explícito) — `modo:"optimo"` sigue fuera de
+  alcance (C003, aplazado a F2/F3); reunificación y refinanciación no modelan comisiones como flujo
+  de caja aparte; `retomar_pagos` no recalcula duración tras la suspensión.
+- 393 pruebas (393 pass, 0 `test.todo`), `npm run verify` en verde: tests, accesibilidad,
+  rendimiento, construcción pública, privacidad y smoke test.
+- Trabajo pendiente de publicar en la rama `claude/repo-analysis-3dupjd` mediante el PR #1
+  (borrador).
+
+## Cierre de sesión — E20-0, día 1: motor de resolución de decisiones sobre deuda
+
+- Arranca el bloque 2 (E20, motor de Escenario unificado) siguiendo la recomendación de
+  `E19_INFORME_FINAL.md` §4: `canonical-scenario-engine.js` es nuevo (no sustituye nada en
+  producción todavía; no está enlazado desde `index.html` ni el service worker, igual que
+  `canonical-scenario-schema.js` en E19-0), y envuelve los cinco tipos de decisión de deuda que ya
+  estaban en paridad exacta (amortización total/parcial, refinanciación, retomar pagos, acuerdo de
+  quita) más reunificación, construida de cero como anticipaba el informe (caso dorado C005).
+- El motor resuelve únicamente el estado de las deudas por ahora: filtra las decisiones inactivas
+  antes de ejecutar nada (I-05), usa `resolveExecutionOrder()` de E19-0 tal cual para el orden real
+  de ejecución, y detecta conflictos bloqueantes explícitos en vez de calcular un número
+  silenciosamente incorrecto — una decisión sobre una deuda ya cerrada por OTRA decisión de ese
+  mismo escenario se rechaza con un código propio (`conflicto-bloqueante`), distinto del de una
+  deuda que ya estaba cerrada al importar el escenario (`deuda-ya-cerrada`). Cubre los casos dorados
+  C005, C042 y C043, documentados en el día 3/5 de E19-0 como huecos funcionales.
+- Todavía no compone la serie mensual del forecast (`canonical-engine`): eso es lo que exige el
+  efecto cascada de C040/C041 (amortizar libera cuota, la cuota liberada financia una compra
+  posterior) y queda para el día 2. Los tipos de decisión que no tocan deuda (compra, proyecto,
+  cambio de ingreso/gasto, traspaso, imprevisto) y `amortizacion_fraccionada` (aplazada a F2/F3 por
+  el informe) se marcan explícitamente como `tipo-no-soportado-aun`, nunca se ignoran en silencio.
+- I-05 (neutralidad de inactivas) e I-06 (conmutatividad de independientes) quedan verificadas hoy
+  a nivel de estado de deudas, con 40 casos aleatorios cada una además de los casos fijos; sus
+  `test.todo` en `tests/canonical-scenario-invariants.test.cjs` se sustituyen por pruebas reales y
+  el catálogo de `canonical-scenario-invariants.js` se actualiza (`verificableHoy: true` para
+  ambas). I-09 (escenario vacío ≡ Plan canónico) sigue como `test.todo` explícito citando el día 2,
+  porque comparar contra el Plan canónico exige la serie mensual que todavía no existe — no se
+  cierra por omisión.
+- 390 pruebas (389 pass, 1 `test.todo` explícito citando E20-0 día 2), `npm run verify` en verde:
+  tests, accesibilidad, rendimiento, construcción pública, privacidad y smoke test.
+- Trabajo pendiente de publicar en la rama `claude/repo-analysis-3dupjd` mediante el PR #1
+  (borrador), que también cierra el bloque 1 (piel visual E19).
+
+## Cierre de sesión — E19-0, dataset dorado y esquemas validables
+
+- E19-0 queda completo y verificado: es la fase de fundación de la nueva propuesta de rediseño
+  visual y evolución funcional (piel visual E19, motor de Escenario unificado E20, presupuesto por
+  bloque E21, deuda y cuadro de mandos con impacto E22), acordada con el usuario junto a un
+  documento de diseño visual y tres documentos de diseño funcional (esquemas y dataset dorado,
+  presupuestos, modelo de Escenario).
+- Día 1: `canonical-scenario-schema.js` valida el objeto Escenario y sus 13 tipos de Decisión
+  (`additionalProperties:false` en cada nivel, un bloque if/then por tipo, detección de ciclos en
+  `dependeDe`). `migrations/scenario-schema-migrations.js` deja el registro de migraciones listo
+  para cuando exista una v1.1.
+- Día 2: tres datasets sintéticos y anonimizados a 120 meses (D1-hogar-base, D2-hogar-apalancado,
+  D3-hogar-holgado; titulares T1/T2, entidades Banco Operativo/Banco Ahorro y Entidad A-D),
+  ejecutables desde el primer día contra `canonical-engine.js` y `canonical-debt-contracts.js`.
+- Día 3: los 10 casos dorados de deuda (C001-C010) ejecutados contra los tres motores reales que
+  hoy calculan deuda de forma independiente. 7 de 10 coinciden exactamente; 3 quedan documentados
+  como hueco funcional (C003 mes óptimo, C004 amortización fraccionada, C005 reunificación) en vez
+  de forzar un resultado inventado. Detalle en `E19_INFORME_PARIDAD_DEUDA.md`.
+- Día 4: invariantes I-01 a I-09 verificadas por generación aleatoria contra el código real
+  (`canonical-scenario-invariants.js`), no solo casos escritos a mano. La primera tanda de 40
+  casos aleatorios de I-07 encontró un error real en `legacy-debt-roadmap-engine.js`: podía
+  reportar que una deuda tardaba más en pagarse al amortizar más, por leer el saldo mutable del
+  último mes simulado en vez del histórico de cada fila. Corregido en un único punto, sin afectar
+  a `totalPaid`/`totalLump`/`peak`; el caso dorado C007 del día 3 ya lo exhibía sin que el informe
+  de ese día lo detectara. Detalle en `E19_INVARIANTES.md`.
+- Día 5: casos combinados C040-C045. `resolveExecutionOrder()` (nuevo en
+  `canonical-scenario-schema.js`) resuelve el orden real de las decisiones por teoría de grafos
+  pura, sin esperar al motor de Escenario: verificado contra C044 (el orden topológico gana sobre
+  el `orden` declarado cuando se contradicen) y C045 (ciclo detectado sin bucle infinito). C040 a
+  C043 quedan como hueco funcional documentado: exigen que un motor comparta estado financiero
+  entre decisiones resueltas en orden, que es exactamente lo que E20 debe construir.
+- Informe final y recomendación de orden para E20 en `E19_INFORME_FINAL.md`: cinco de los seis
+  tipos de decisión más usados ya están en paridad y pueden envolverse sin reescribir; reunificación
+  y conflictos bloqueantes son el riesgo real de F1; el efecto cascada entre decisiones (C040/C041)
+  debería ser el criterio de aceptación de F1, no un extra.
+- La puerta local pasa con 378 pruebas (375 pass, 3 `test.todo` explícitos citando a E20-0),
+  accesibilidad, rendimiento, construcción pública, privacidad, smoke test y `git diff --check`.
+  Ningún dato real en ningún fixture, verificado por prueba automatizada.
+- Se creó la rama `checkpoint-pre-e19-rediseno` en GitHub (apuntando a `aecc450`, el commit estable
+  previo a este trabajo) como punto de restauración si hiciera falta partir de cero.
+- Trabajo publicado en la rama `claude/repo-analysis-3dupjd` mediante el PR #1 (borrador), sin
+  fusionar a `main` todavía.
 
 ## Cierre de sesión — A5-2 a A5-4
 

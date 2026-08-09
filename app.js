@@ -15956,11 +15956,12 @@ function renderE11bStatus() {
   const summary = qs("dataInboxSummary");
   if (summary) {
     const items = dataInbox.slice(-4).reverse();
+    const badgeClass = { ready: "e19-badge-accent", blocked: "e19-badge-warning", applied: "e19-badge-success", undone: "e19-badge-neutral", discarded: "e19-badge-neutral" };
     summary.innerHTML = items.length ? items.map((item) => {
       const counts = item.comparison || {};
       const status = { ready: "Lista para confirmar", blocked: "Requiere revisión", applied: "Aplicada", undone: "Deshecha", discarded: "Descartada" }[item.status] || item.status;
-      return `<article class="e11b-inbox-item"><strong>${escapeHtml(item.sourceLabel)} · ${escapeHtml(status)}</strong><p>${item.rows?.length || 0} fila(s) · ${counts.additions?.length || 0} altas · ${counts.changes?.length || 0} cambios · ${counts.duplicates?.length || 0} duplicados. El fichero original no se conserva.</p></article>`;
-    }).join("") : `<article class="e11b-inbox-item"><strong>Bandeja preparada</strong><p>Selecciona un CSV, Excel, tabla o extracto. Nada se incorporará antes de comparar y confirmar.</p></article>`;
+      return `<article class="e19-inbox-item"><div class="e19-inbox-item-head"><strong>${escapeHtml(item.sourceLabel)}</strong><span class="e19-badge ${badgeClass[item.status] || "e19-badge-neutral"}">${escapeHtml(status)}</span></div><p>${item.rows?.length || 0} fila(s) · ${counts.additions?.length || 0} altas · ${counts.changes?.length || 0} cambios · ${counts.duplicates?.length || 0} duplicados. El fichero original no se conserva.</p></article>`;
+    }).join("") : `<article class="e19-inbox-item"><strong>Bandeja preparada</strong><p>Selecciona un CSV, Excel, tabla o extracto. Nada se incorporará antes de comparar y confirmar.</p></article>`;
   }
   const actualMonths = [...Object.keys(incomeActuals), ...Object.keys(expenseActuals)].map((key) => ({ date: String(key).match(/\d{4}-\d{2}/)?.[0] ? `${String(key).match(/\d{4}-\d{2}/)[0]}-01` : "" }));
   const report = E11bInbox.freshness({
@@ -15970,7 +15971,11 @@ function renderE11bStatus() {
     debtDate: canonicalDebtContractRows().length ? (baseData?.metadata?.generatedAt?.slice(0, 10) || "") : "",
   }, { asOf: new Date().toISOString().slice(0, 10) });
   const freshness = qs("updateFreshness");
-  if (freshness) freshness.innerHTML = Object.entries(report.areas).map(([key, area]) => `<article class="e11b-freshness-item"><strong>${escapeHtml(e11bAreaLabel(key))}</strong><p>${area.through ? `Hasta ${escapeHtml(formatIsoDate(area.through))}` : `Falta ${escapeHtml(area.missing.join(", "))}`} · ${area.status === "current" ? "al día" : area.status === "stale" ? "revisar frescura" : "incompleto"}</p></article>`).join("");
+  if (freshness) freshness.innerHTML = Object.entries(report.areas).map(([key, area]) => {
+    const pillClass = area.status === "current" ? "e19-pill-safe" : "e19-pill-warn";
+    const pillLabel = area.status === "current" ? "al día" : area.status === "stale" ? "revisar frescura" : "incompleto";
+    return `<article class="e19-freshness-item"><strong>${escapeHtml(e11bAreaLabel(key))}</strong><p>${area.through ? `Hasta ${escapeHtml(formatIsoDate(area.through))}` : `Falta ${escapeHtml(area.missing.join(", "))}`}</p><span class="e19-pill ${pillClass}">${pillLabel}</span></article>`;
+  }).join("");
 }
 
 function addE11bInboxItem(input) {
@@ -16467,7 +16472,7 @@ function renderUpdateHub() {
     nextBody = `${differences} mes(es) todavía no cuadran entre movimientos y datos reales.`;
     target = "reconciliation";
   }
-  qs("updateNextStep").innerHTML = `<div><p class="panel-kicker">Siguiente paso sugerido</p><h3>${escapeHtml(nextTitle)}</h3><p>${escapeHtml(nextBody)}</p></div><button type="button" data-home-nav="${escapeHtml(target)}">Continuar</button>`;
+  qs("updateNextStep").innerHTML = `<div><p class="panel-kicker e19-eyebrow">Siguiente paso sugerido</p><h3>${escapeHtml(nextTitle)}</h3><p>${escapeHtml(nextBody)}</p></div><button type="button" class="e19-btn e19-btn-primary" data-home-nav="${escapeHtml(target)}">Continuar</button>`;
 }
 
 function populateSelectors(force = false) {
@@ -16580,22 +16585,24 @@ function homeStatusClass(value, warnAt = 0, dangerAt = 0) {
 }
 
 function renderHomeKpi({ label, value, note, status = "good", cta, target, metadata }) {
-  return `<article class="home-kpi-card ${status}">
-    <span>${escapeHtml(label)}</span>
-    <strong>${escapeHtml(value)}</strong>
-    <p>${escapeHtml(note)}</p>
-    ${metadata ? `<p class="home-kpi-meta">${escapeHtml(`Fuente: ${metadata.source} · ${metadata.asOf} · confianza ${metadata.confidence}`)}</p>` : ""}
-    ${cta ? `<button type="button" data-home-nav="${escapeHtml(target || "")}">${escapeHtml(cta)}</button>` : ""}
+  const statusClass = status === "danger" ? "is-danger" : status === "warn" ? "is-warn" : "is-good";
+  return `<article class="e19-kpi ${statusClass}">
+    <span class="e19-kpi-label">${escapeHtml(label)}</span>
+    <strong class="e19-kpi-value">${escapeHtml(value)}</strong>
+    <p class="e19-kpi-note">${escapeHtml(note)}</p>
+    ${metadata ? `<p class="e19-kpi-meta">${escapeHtml(`Fuente: ${metadata.source} · ${metadata.asOf} · confianza ${metadata.confidence}`)}</p>` : ""}
+    ${cta ? `<button type="button" class="e19-btn e19-btn-secondary e19-kpi-cta" data-home-nav="${escapeHtml(target || "")}">${escapeHtml(cta)}</button>` : ""}
   </article>`;
 }
 
 function renderHomeInsight({ title, text, status = "good", target, cta }) {
-  return `<div class="home-insight ${status}">
+  const statusClass = status === "danger" ? "is-danger" : status === "warn" ? "is-warn" : "is-good";
+  return `<div class="e19-insight ${statusClass}">
     <div>
       <strong>${escapeHtml(title)}</strong>
       <p>${escapeHtml(text)}</p>
     </div>
-    ${cta ? `<button type="button" data-home-nav="${escapeHtml(target || "")}">${escapeHtml(cta)}</button>` : ""}
+    ${cta ? `<button type="button" class="e19-btn e19-btn-secondary" data-home-nav="${escapeHtml(target || "")}">${escapeHtml(cta)}</button>` : ""}
   </div>`;
 }
 
@@ -17217,11 +17224,11 @@ function renderHomeDashboard() {
 
   const nextDebt = debtPriorities[0];
   qs("homePriorities").innerHTML = [
-    `<div class="home-context-item"><span>Decisiones en plan</span><strong>${loadedDecisions.length}</strong><small>Simuladas, propuestas o fijadas en el modelo actual.</small></div>`,
+    `<div class="e19-context-item"><span>Decisiones en plan</span><strong>${loadedDecisions.length}</strong><small>Simuladas, propuestas o fijadas en el modelo actual.</small></div>`,
     nextDebt
-      ? `<div class="home-context-item"><span>Siguiente deuda candidata</span><strong>${escapeHtml(debtTargetDisplayName(nextDebt.target))}</strong><small>${money(nextDebt.principal, true)} pendientes · mejor hueco ${escapeHtml(nextDebt.best?.month?.label || "por calcular")}.</small></div>`
-      : `<div class="home-context-item"><span>Deuda candidata</span><strong>Sin propuesta</strong><small>No hay una deuda disponible para preparar ahora.</small></div>`,
-    `<div class="home-context-item"><span>Horizonte visible</span><strong>${rows.length} meses</strong><small>Ratio deuda/ingresos ${(savings.debtToIncomeRatio * 100).toFixed(1)}% · pago estimado ${money(debtStats.currentPayment.total, true)}/mes.</small></div>`,
+      ? `<div class="e19-context-item"><span>Siguiente deuda candidata</span><strong>${escapeHtml(debtTargetDisplayName(nextDebt.target))}</strong><small>${money(nextDebt.principal, true)} pendientes · mejor hueco ${escapeHtml(nextDebt.best?.month?.label || "por calcular")}.</small></div>`
+      : `<div class="e19-context-item"><span>Deuda candidata</span><strong>Sin propuesta</strong><small>No hay una deuda disponible para preparar ahora.</small></div>`,
+    `<div class="e19-context-item"><span>Horizonte visible</span><strong>${rows.length} meses</strong><small>Ratio deuda/ingresos ${(savings.debtToIncomeRatio * 100).toFixed(1)}% · pago estimado ${money(debtStats.currentPayment.total, true)}/mes.</small></div>`,
   ].join("");
 
   qs("homeMonthTable").innerHTML = `<thead><tr>
