@@ -89,7 +89,7 @@ a la que corresponden y su estado de migración a día de hoy.
 | 1d | Asesor ejecutivo · una decisión abierta a la vez | `#executive-advisor` | ⏳ Pendiente |
 | 1e | Simulación nueva vida · simular → comparar → aplicar en una sola vista | `#escenario-simular` | ✅ Migrada (E20-1) |
 | 1f | Actualizar mis datos · hub ordenado por lo que tienes delante | `#update-hub` | ✅ Migrada (E19-3) |
-| 1g | Conciliación · las diferencias como tareas, no como tablas | `#reconciliation` | ⏳ Pendiente |
+| 1g | Conciliación · las diferencias como tareas, no como tablas | `#conciliar` | ✅ Migrada (E20-2) |
 
 ### Turno 2 — Entrada y actualización de datos · previsión · aplicación de escenarios
 
@@ -182,3 +182,21 @@ ha configurado una reserva (aquí, o en Presupuesto de riesgo, `state.operatingR
 se usa un suelo de 0 € por defecto — nunca "sin comprobar nada" en silencio — y el
 checklist "antes de aplicar" deja explícito si la cifra es una reserva real configurada o
 el suelo por defecto.
+
+## 7. Conciliación (1g)
+
+El mockup 1g reduce la conciliación a "qué falta para cerrar el mes": un título con el
+número de tareas, KPIs de cobertura, una lista de tareas por causa ordenadas por impacto,
+un checklist de qué implica cerrar y el histórico de meses anteriores. Implementado como
+`#conciliar` (E20-2), es **puro reskin**: no reimplementa ni un cálculo — llama
+literalmente a las mismas funciones que ya usaba la pantalla heredada `#reconciliation`
+(`refreshCanonicalLedger`, `E11bInbox.reconciliationTasks`,
+`FinanceCanonicalE5.latestMonthOperation`, `closeCurrentMonthTransaction`,
+`downloadCanonicalLedger`) y solo cambia qué se muestra y cómo. `#reconciliation` sigue
+intacta, sin tocar, para quien necesite el panel operativo completo (paridad histórica,
+auditoría diaria, barrera de publicación) que el mockup no pide y `#conciliar`
+deliberadamente no reproduce.
+
+"Meses anteriores" deriva su estado (cerrado / reabierto N veces) de `monthClosures`, el
+registro real de operaciones de cierre — no hay estados fabricados como "revisar" o
+similar que no tengan un operación real detrás.

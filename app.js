@@ -3302,6 +3302,7 @@ async function closeCurrentMonthTransaction() {
     ensureRemoteSaveQueue().acknowledge(closedAt);
     saveLocalSnapshot();
     renderReconciliation();
+    if (qs("conciliarTitle")) renderConciliar();
     if (status) status.textContent = `${month} cerrado. Los reales quedan congelados en una versión recuperable.`;
   } catch (error) {
     if (status) status.textContent = `No se cerró el mes: ${error.message}`;
@@ -18885,6 +18886,115 @@ function handleDeudaRutaApply() {
   escenarioMotorNavigate("escenario-aplicar");
 }
 
+// ---------------------------------------------------------------------------------------------
+// Conciliación (E20-2, mockup 1g). No reimplementa nada: llama a las mismas funciones reales que
+// ya usa la pantalla heredada #reconciliation (refreshCanonicalLedger, E11bInbox.reconciliationTasks,
+// FinanceCanonicalE5.latestMonthOperation) y solo cambia la presentación — una lectura enfocada en
+// "qué falta para cerrar el mes" en vez del panel operativo completo (paridad histórica, auditoría
+// diaria, barrera de publicación...) que #reconciliation sigue ofreciendo intacto para quien lo
+// necesite.
+// ---------------------------------------------------------------------------------------------
+function conciliarMonthHistory(monthRows) {
+  return monthRows.map((row) => {
+    const latest = window.FinanceCanonicalE5?.latestMonthOperation({ monthClosures }, row.monthKey);
+    const reopenCount = monthClosures.filter((op) => op.monthKey === row.monthKey && op.operation === "month-reopen").length;
+    return { monthKey: row.monthKey, closed: latest?.status === "closed", reopenCount };
+  });
+}
+
+function renderConciliar() {
+  if (!window.FinanceCanonicalLedger) return;
+  const snapshot = refreshCanonicalLedger("conciliar-view");
+  if (!snapshot) return;
+  const quality = snapshot.quality || {};
+  const months = snapshot.reconciliation?.months || [];
+  const lines = snapshot.reconciliation?.lines || [];
+  const entries = snapshot.entries || [];
+  const checks = snapshot.balanceChecks || [];
+  const differenceTotal = ledgerDifferenceTotal(snapshot);
+
+  const unclassified = entries.filter((entry) => !entry.duplicateOf && entry.mapping?.status !== "classified");
+  const differences = lines.filter((line) => Math.abs(Number(line.delta || 0)) > 0.02);
+  const balanceGaps = checks.flatMap((check) => (check.gaps || []).map((gap, index) => ({ ...gap, id: `${check.accountId}-${index}`, accountId: check.accountId })));
+  const tasks = E11bInbox ? E11bInbox.reconciliationTasks({ unclassified, differences, balanceGaps }) : [];
+
+  const currentMonthKey = openMonthCutoffKey();
+  const currentClosure = isClosedMonthKey(currentMonthKey) ? window.FinanceCanonicalE5?.latestMonthOperation({ monthClosures }, currentMonthKey) : null;
+  const isClosed = Boolean(currentClosure);
+
+  const titleEl = qs("conciliarTitle");
+  if (titleEl) {
+    titleEl.textContent = isClosed
+      ? `${ledgerMonthLabel(currentMonthKey)} cerrado`
+      : tasks.length
+      ? `Faltan ${tasks.length} cosa(s) para cerrar ${ledgerMonthLabel(currentMonthKey)}`
+      : `Nada pendiente para cerrar ${ledgerMonthLabel(currentMonthKey)}`;
+  }
+  const subtitleEl = qs("conciliarSubtitle");
+  if (subtitleEl) subtitleEl.textContent = `Diferencia total banco vs. real: ${money(differenceTotal, true)}. Abrir una tarea no corrige nada por sí solo.`;
+
+  const kpis = qs("conciliarKpis");
+  if (kpis) {
+    const gapCount = Number(quality.balanceGapCount || 0);
+    kpis.innerHTML = [
+      ["Movimientos del banco", String(Number(quality.transactionCount || 0)), ""],
+      ["Clasificados", String(Number(quality.classifiedCount || 0)), ""],
+      ["Diferencia banco vs. real", money(differenceTotal, true), differenceTotal > 0.02 ? " is-warn" : ""],
+      ["Continuidad de saldos", gapCount ? `${gapCount} salto(s)` : "Correcta", gapCount ? " is-warn" : ""],
+    ]
+      .map(([label, value, tone]) => `<div class="e19-kpi${tone}"><span class="e19-kpi-label">${escapeHtml(label)}</span><span class="e19-kpi-value">${escapeHtml(value)}</span></div>`)
+      .join("") + `<div class="e19-kpi${isClosed ? "" : " is-warn"}"><span class="e19-kpi-label">Estado</span><span class="e19-kpi-value">${isClosed ? "Cerrado" : "Abierto"}</span></div>`;
+  }
+
+  const taskList = qs("conciliarTasks");
+  if (taskList) {
+    taskList.innerHTML = tasks.length
+      ? tasks
+          .slice(0, 12)
+          .map(
+            (task, index) => `<li class="conciliar-task-item">
+              <span class="conciliar-task-index">${index + 1}</span>
+              <div>
+                <strong>${escapeHtml(task.label)}</strong>
+                <p>${task.cause === "unclassified" ? "Movimiento sin partida" : task.cause === "balance-gap" ? "Salto en la continuidad del saldo" : "Banco y real no coinciden"}. Abrir no modifica nada.</p>
+              </div>
+              <button type="button" class="e19-btn e19-btn-secondary" data-conciliar-task-target="${escapeHtml(task.target)}">${task.action === "classify" ? "Clasificar" : task.action === "adjust-balance" ? "Revisar saldo" : "Corregir real"}</button>
+            </li>`
+          )
+          .join("")
+      : `<li class="conciliar-task-item conciliar-task-empty">Sin tareas pendientes: clasificación, saldos e importes reales están conciliados.</li>`;
+  }
+
+  const checklist = qs("conciliarChecklist");
+  if (checklist) {
+    const checkItems = [
+      { ok: unclassified.length === 0, label: unclassified.length === 0 ? "Todos los movimientos están clasificados" : `${unclassified.length} movimiento(s) sin clasificar` },
+      { ok: Number(quality.balanceGapCount || 0) === 0, label: Number(quality.balanceGapCount || 0) === 0 ? "Continuidad de saldos correcta" : `${quality.balanceGapCount} salto(s) de saldo` },
+      { ok: !isClosed, label: isClosed ? `Ya cerrado el ${escenarioMotorMonthLabel(currentMonthKey)}` : "Los reales quedarán congelados en una versión recuperable" },
+    ];
+    checklist.innerHTML = checkItems.map((check) => `<li class="deuda-ruta-check${check.ok ? " is-ok" : " is-danger"}">${escapeHtml(check.label)}</li>`).join("");
+  }
+
+  const history = qs("conciliarHistory");
+  if (history) {
+    const previousMonths = months.filter((row) => row.monthKey !== currentMonthKey).slice(-3).reverse();
+    const rows = conciliarMonthHistory(previousMonths);
+    history.innerHTML = rows.length
+      ? rows
+          .map(
+            (row) => `<div class="conciliar-history-row"><span>${escapeHtml(ledgerMonthLabel(row.monthKey))}</span><strong class="${row.closed ? "is-ok" : "is-warn"}">${row.closed ? `Cerrado${row.reopenCount ? ` · reabierto ${row.reopenCount} vez${row.reopenCount > 1 ? "es" : ""}` : ""}` : "Abierto"}</strong></div>`
+          )
+          .join("")
+      : `<p class="e19-kpi-note">Sin meses anteriores con extracto importado.</p>`;
+  }
+
+  const closeButton = qs("conciliarClose");
+  if (closeButton) {
+    closeButton.disabled = isClosed;
+    closeButton.textContent = isClosed ? "Mes cerrado" : "Cerrar mes";
+  }
+}
+
 function renderActiveSection(viewId = viewFromHash()) {
   if (!lastSimulation.length) return;
   switch (viewId) {
@@ -18923,6 +19033,9 @@ function renderActiveSection(viewId = viewFromHash()) {
       break;
     case "deuda-ruta":
       renderDeudaRuta();
+      break;
+    case "conciliar":
+      renderConciliar();
       break;
     case "debt-roadmap":
       renderE14bPanel();
@@ -19439,6 +19552,15 @@ async function init() {
     if (tabButton) handleDeudaRutaTab(tabButton.dataset.deudaRutaTab);
   });
   qs("deudaRutaApply")?.addEventListener("click", handleDeudaRutaApply);
+  qs("conciliarDownload")?.addEventListener("click", downloadCanonicalLedger);
+  qs("conciliarClose")?.addEventListener("click", closeCurrentMonthTransaction);
+  qs("conciliarTasks")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-conciliar-task-target]");
+    if (!button) return;
+    const target = button.dataset.conciliarTaskTarget;
+    history.pushState(null, "", `#${target}`);
+    setActiveView(target, { focus: true });
+  });
   qs("debt-liquidation-plan")?.addEventListener("click", (event) => {
     const targetButton = event.target.closest("[data-debt-plan-target]");
     if (targetButton) {

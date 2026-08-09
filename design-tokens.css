@@ -1370,3 +1370,150 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* -------------------------------------------------------------------------------------------- */
+/* Conciliación (E20-2) — mockup 1g. No reimplementa el motor de conciliación: reutiliza           */
+/* refreshCanonicalLedger/E11bInbox tal cual, solo con una presentación E19 nueva y enfocada en     */
+/* "qué falta para cerrar el mes" (la pantalla heredada #reconciliation sigue intacta para el       */
+/* panel operativo completo). Reutiliza .deuda-ruta-side/.deuda-ruta-checklist con su propio ámbito */
+/* — mismos nombres de clase que en el comparador de deuda, redefinidos aquí a propósito en vez de  */
+/* compartir una regla entre pantallas distintas.                                                  */
+/* -------------------------------------------------------------------------------------------- */
+
+.e19-conciliar .conciliar-layout {
+  display: grid;
+  grid-template-columns: 1fr minmax(260px, 320px);
+  gap: 18px;
+  align-items: start;
+}
+
+.e19-conciliar .conciliar-layout > * {
+  min-width: 0;
+}
+
+.e19-conciliar .conciliar-layout > .e19-card {
+  padding: 18px;
+}
+
+.e19-conciliar .deuda-ruta-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.e19-conciliar .deuda-ruta-side .e19-card {
+  padding: 18px;
+}
+
+.e19-conciliar .deuda-ruta-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.e19-conciliar .deuda-ruta-check {
+  font-size: var(--e19-text-sm);
+  padding: 8px 10px;
+  border-radius: var(--e19-radius-sm);
+  background: var(--e19-surface-soft);
+  color: var(--e19-muted);
+}
+
+.e19-conciliar .deuda-ruta-check.is-ok {
+  color: var(--e19-success);
+  background: color-mix(in srgb, var(--e19-success) 10%, var(--e19-surface-soft));
+}
+
+.e19-conciliar .deuda-ruta-check.is-danger {
+  color: var(--e19-danger);
+  background: color-mix(in srgb, var(--e19-danger) 10%, var(--e19-surface-soft));
+}
+
+.e19-conciliar .conciliar-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.e19-conciliar .conciliar-task-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--e19-border);
+  border-radius: var(--e19-radius-md);
+  background: var(--e19-surface-soft);
+}
+
+.e19-conciliar .conciliar-task-item.conciliar-task-empty {
+  color: var(--e19-muted);
+}
+
+.e19-conciliar .conciliar-task-index {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--e19-warning);
+  color: #fff;
+  font-size: var(--e19-text-xs);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.e19-conciliar .conciliar-task-item > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.e19-conciliar .conciliar-task-item strong {
+  display: block;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-ink);
+}
+
+.e19-conciliar .conciliar-task-item p {
+  margin: 2px 0 0;
+  font-size: var(--e19-text-xs);
+  color: var(--e19-muted);
+}
+
+.e19-conciliar .conciliar-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--e19-border);
+  font-size: var(--e19-text-sm);
+}
+
+.e19-conciliar .conciliar-history-row:last-child {
+  border-bottom: none;
+}
+
+.e19-conciliar .conciliar-history-row span {
+  color: var(--e19-muted);
+}
+
+.e19-conciliar .conciliar-history-row strong.is-ok {
+  color: var(--e19-success);
+}
+
+.e19-conciliar .conciliar-history-row strong.is-warn {
+  color: var(--e19-warning);
+}
+
+@media (max-width: 860px) {
+  .e19-conciliar .conciliar-layout {
+    grid-template-columns: 1fr;
+  }
+}

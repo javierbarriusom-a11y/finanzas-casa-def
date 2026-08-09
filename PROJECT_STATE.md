@@ -2,6 +2,22 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Cierre de sesión — E20-2 (continuación): conciliación (1g)
+
+Tercera pantalla del tramo actual: `#conciliar`, puro reskin sobre la conciliación real ya
+verificada (E4/A1-1, E11b) — llama a las mismas funciones que la pantalla heredada
+`#reconciliation` (`refreshCanonicalLedger`, `E11bInbox.reconciliationTasks`,
+`FinanceCanonicalE5.latestMonthOperation`) sin reimplementar ningún cálculo; solo cambia
+la presentación a "qué falta para cerrar el mes" en vez del panel operativo completo, que
+sigue intacto en `#reconciliation`. Detalle en `docs/E19_SISTEMA_DISENO.md` §7.
+
+Verificado con Playwright contra la app real: KPIs, lista de tareas, checklist de cierre e
+histórico de meses anteriores renderizan correctamente; contrastado contra `#reconciliation`
+en el mismo dataset para confirmar que la ausencia de datos (0 movimientos bancarios
+importados en el dataset local de pruebas) es igual en ambas pantallas, no un fallo nuevo.
+
+403 pruebas (403 pass), `npm run verify` en verde.
+
 ## Cierre de sesión — E20-2: comparador de estrategias de deuda + plan de deuda · ruta (1b/1c)
 
 A petición expresa del usuario, arranca el resto del catálogo de mockups pendiente
