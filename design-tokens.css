@@ -753,3 +753,325 @@
 .e19-prevision .prevision-table td[data-prevision-month-key]:hover {
   background: var(--e19-accent-soft);
 }
+
+/* -------------------------------------------------------------------------------------------- */
+/* Motor de Escenario (E20-1) — simular → aplicar → guardados, tres pantallas encadenadas         */
+/* construidas enteramente en e19-, sin markup heredado (mockups 1e/2d/2e). Reutiliza              */
+/* .e19-card/.e19-btn/.e19-table/.e19-badge/.e19-kpi/.e19-insight tal cual; esto cubre el grid del  */
+/* formulario, el layout de dos columnas, el gráfico y las tarjetas de escenario guardado, que no   */
+/* tenían equivalente genérico ya definido.                                                        */
+/* -------------------------------------------------------------------------------------------- */
+
+.e19-escenario-motor .escenario-motor-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.e19-escenario-motor .escenario-motor-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+}
+
+.e19-escenario-motor .escenario-motor-form-grid input,
+.e19-escenario-motor .escenario-motor-form-grid select {
+  border: 1px solid var(--e19-border-strong);
+  border-radius: var(--e19-radius-sm);
+  padding: 8px 10px;
+  font: 400 var(--e19-text-base) / 1.3 var(--e19-font-sans);
+  color: var(--e19-ink);
+  background: var(--e19-surface);
+}
+
+.e19-escenario-motor .escenario-motor-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+/* Sin min-width: 0 un hijo de grid nunca se encoge por debajo del ancho intrínseco de su
+   contenido — con una tabla dentro eso puede empujar el layout entero fuera del viewport en vez
+   de activar el scroll horizontal de .table-wrap, que es lo que se espera aquí. */
+.e19-escenario-motor .escenario-motor-layout > * {
+  min-width: 0;
+}
+
+.e19-escenario-motor .escenario-motor-controls {
+  padding: 18px;
+}
+
+/* Pantalla «Aplicar» (2d): la tabla de diferencias necesita más ancho que el panel de sliders de
+   «Simular», así que invierte la proporción de columnas en vez de reutilizar el mismo layout. */
+.e19-escenario-motor .escenario-motor-layout-apply {
+  grid-template-columns: 1fr minmax(280px, 360px);
+}
+
+.e19-escenario-motor .escenario-motor-diff-panel {
+  padding: 18px;
+}
+
+/* table-layout: fixed + anchos por columna para que las 4 columnas siempre quepan en el ancho
+   disponible (envolviendo texto si hace falta) en vez de forzar scroll horizontal por defecto.
+   min-width: 0 anula el `table { min-width: 1120px }` genérico de styles.css (pensado para las
+   tablas grandes de datos), que si no forzaría scroll aquí igualmente. */
+.e19-escenario-motor .escenario-motor-diff-panel table {
+  table-layout: fixed;
+  min-width: 0;
+}
+
+.e19-escenario-motor .escenario-motor-diff-panel th:nth-child(1),
+.e19-escenario-motor .escenario-motor-diff-panel td:nth-child(1) {
+  width: 32%;
+}
+
+.e19-escenario-motor .escenario-motor-diff-panel th:nth-child(2),
+.e19-escenario-motor .escenario-motor-diff-panel td:nth-child(2) {
+  width: 36%;
+}
+
+.e19-escenario-motor .escenario-motor-diff-panel th:nth-child(3),
+.e19-escenario-motor .escenario-motor-diff-panel td:nth-child(3) {
+  width: 16%;
+}
+
+.e19-escenario-motor .escenario-motor-diff-panel th:nth-child(4),
+.e19-escenario-motor .escenario-motor-diff-panel td:nth-child(4) {
+  width: 16%;
+}
+
+.e19-escenario-motor .escenario-motor-diff-panel td {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.e19-escenario-motor .escenario-motor-decision-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.e19-escenario-motor .escenario-motor-decision-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--e19-border);
+  border-radius: var(--e19-radius-md);
+  background: var(--e19-surface-soft);
+}
+
+.e19-escenario-motor .escenario-motor-decision-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.e19-escenario-motor .escenario-motor-decision-main strong {
+  font-size: var(--e19-text-sm);
+  color: var(--e19-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.e19-escenario-motor .escenario-motor-decision-main span {
+  font-size: var(--e19-text-xs);
+  color: var(--e19-muted);
+}
+
+.e19-escenario-motor .escenario-motor-decision-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.e19-escenario-motor .escenario-motor-decision-remove {
+  border: none;
+  background: none;
+  color: var(--e19-muted);
+  font-size: var(--e19-text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.e19-escenario-motor .escenario-motor-decision-remove:hover {
+  color: var(--e19-danger);
+}
+
+@media (max-width: 860px) {
+  .e19-escenario-motor .escenario-motor-layout-apply {
+    grid-template-columns: 1fr;
+  }
+}
+
+.e19-escenario-motor .escenario-motor-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.e19-escenario-motor .escenario-motor-preview.e19-card {
+  padding: 18px;
+}
+
+.e19-escenario-motor .escenario-motor-panel-title {
+  margin: 0 0 12px;
+  font: 700 var(--e19-text-lg) / 1.2 var(--e19-font-sans);
+  color: var(--e19-heading);
+}
+
+.e19-escenario-motor .escenario-motor-panel-title-spaced {
+  margin-top: 22px;
+}
+
+.e19-escenario-motor .escenario-motor-chart-card {
+  padding: 18px;
+}
+
+.e19-escenario-motor .escenario-motor-chart {
+  width: 100%;
+  height: 170px;
+  display: block;
+}
+
+.e19-escenario-motor .escenario-motor-chart .chart-line-base {
+  fill: none;
+  stroke: var(--e19-faint);
+  stroke-width: 2;
+}
+
+.e19-escenario-motor .escenario-motor-chart .chart-line-scenario {
+  fill: none;
+  stroke: var(--e19-accent);
+  stroke-width: 2.5;
+}
+
+.e19-escenario-motor .escenario-motor-chart .chart-line-reserve {
+  fill: none;
+  stroke: var(--e19-danger);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.e19-escenario-motor .escenario-motor-chart .chart-label {
+  font: 500 10px / 1 var(--e19-font-sans);
+  fill: var(--e19-muted);
+}
+
+.e19-escenario-motor .escenario-motor-warning {
+  align-items: center;
+}
+
+.e19-escenario-motor .escenario-motor-go-apply {
+  align-self: flex-end;
+}
+
+.e19-escenario-motor .escenario-motor-go-apply:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.e19-escenario-motor .escenario-motor-motivo-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+  margin-bottom: 12px;
+}
+
+.e19-escenario-motor .escenario-motor-motivo-label input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--e19-border-strong);
+  border-radius: var(--e19-radius-sm);
+  padding: 9px 11px;
+  font: 400 var(--e19-text-base) / 1.3 var(--e19-font-sans);
+  color: var(--e19-ink);
+  background: var(--e19-surface);
+}
+
+.e19-escenario-motor .escenario-motor-motivo-note {
+  margin-top: 10px;
+}
+
+.e19-escenario-motor .escenario-motor-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.e19-escenario-motor .escenario-motor-saved-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+  border: 1px solid var(--e19-border);
+  border-radius: var(--e19-radius-lg);
+  background: var(--e19-surface);
+  box-shadow: var(--e19-shadow-card);
+}
+
+.e19-escenario-motor .escenario-motor-saved-card.is-aplicado {
+  border-color: var(--e19-success);
+  box-shadow: inset 0 0 0 1px var(--e19-success);
+}
+
+.e19-escenario-motor .escenario-motor-saved-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.e19-escenario-motor .escenario-motor-saved-head small {
+  color: var(--e19-muted);
+  font-size: var(--e19-text-sm);
+}
+
+.e19-escenario-motor .escenario-motor-saved-meta {
+  display: flex;
+  gap: 22px;
+}
+
+.e19-escenario-motor .escenario-motor-saved-meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.e19-escenario-motor .escenario-motor-saved-meta span {
+  font-size: var(--e19-text-xs);
+  color: var(--e19-muted);
+}
+
+.e19-escenario-motor .escenario-motor-saved-meta strong {
+  font-size: var(--e19-text-md);
+  color: var(--e19-ink);
+}
+
+.e19-escenario-motor .escenario-motor-saved-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+@media (max-width: 860px) {
+  .e19-escenario-motor .escenario-motor-layout {
+    grid-template-columns: 1fr;
+  }
+}

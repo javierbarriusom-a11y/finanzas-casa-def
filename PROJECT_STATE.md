@@ -2,6 +2,112 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Cierre de sesión — E20-1: rediseño de Escenario según los mockups reales (1e/2d/2e)
+
+A petición expresa del usuario, la pantalla única `#escenario-motor` del día 1 se
+rediseñó como el flujo de **tres pantallas encadenadas** que definen los mockups
+1e/2d/2e: `#escenario-simular` (panel de controles + gráfico plan-vs-simulación con línea
+de reserva + KPIs de liquidez final/caja mínima/libre de deuda + aviso de límite roto con
+"ajustar automáticamente"), `#escenario-aplicar` (diff línea a línea + motivo obligatorio)
+y `#escenario-guardados` (lista con estado aplicado/guardado, KPIs recalculados al vuelo,
+persistida en `localStorage`). Detalle completo, incluidas las simplificaciones
+deliberadas frente al mockup (solo dos estados, "aplicar" no muta las deudas reales), en
+`docs/E19_SISTEMA_DISENO.md` §5.
+
+Añadido de verdad en este rediseño, no solo estético:
+- KPI "Libre de deuda", calculado desde el estado real de los contratos (cuota × plazo
+  restante), nunca inventado — con su propio caso límite gestionado explícitamente (una
+  deuda sin cuota activa, p. ej. suspendida o el registro histórico de una reunificación,
+  no tiene fecha proyectable y se dice así en vez de fabricar una).
+- El contexto de deudas del motor pasó de `debtContractSourceRows()` a
+  `canonicalDebtContractRows()`, que incluye el plan reunificado sintético — antes
+  quedaba fuera del alcance de la pantalla sin que nada lo avisara.
+- "Ajustar automáticamente" reutiliza de verdad la búsqueda de mes óptimo del motor
+  (`planificacion.modo: "optimo"`, E20-0 día 3) — no es un botón decorativo.
+- Persistencia real de escenarios guardados vía `localStorage` (antes: solo en memoria de
+  sesión).
+
+Bug de layout real encontrado y corregido durante la verificación visual con Playwright
+(no solo capturas — clics reales de extremo a extremo): una tabla de 5 columnas dentro del
+panel estrecho de 300px desbordaba fuera del viewport en vez de activar scroll horizontal,
+por dos causas combinadas — un hijo de grid sin `min-width: 0` no se encoge por debajo del
+ancho intrínseco de su contenido, y una regla genérica `table { min-width: 1120px }` ya
+existente en `styles.css` (pensada para las tablas grandes de datos) se aplicaba también
+aquí. Corregido con `min-width: 0` en los hijos del grid y `table-layout: fixed` con
+anchos de columna explícitos en la tabla de diferencias.
+
+403 pruebas (403 pass), `npm run verify` en verde, flujo simular → aplicar → guardados
+verificado de extremo a extremo con Playwright contra la app real (incluida persistencia
+tras recargar la página).
+
+## Mockups originales documentados en el repositorio
+
+El usuario aportó el documento de mockups completo ("Finanzas Casa · Mockups", 15
+pantallas en 3 bloques) que hasta ahora solo existía como archivo aportado en
+conversación — `design-tokens.css` ya citaba un `docs/E19_SISTEMA_DISENO.md` que nunca
+se había escrito. Ahora existe: `docs/E19_SISTEMA_DISENO.md` documenta el origen, los
+tokens (ya en `design-tokens.css`, ahora también en prosa), los componentes construidos y
+el catálogo completo de las 15 pantallas con su estado de migración. El archivo original
+se conserva en `docs/mockups/` (fuente + capturas por pantalla), como referencia interna
+— no se sirve desde `index.html` ni se enlaza al sitio público, ni lo tocan
+`build-public-site.mjs`/`check-public-privacy.mjs` (ambos trabajan con listas explícitas
+de archivos, no escanean el repo entero).
+
+Hallazgo importante al revisarlos: los mockups **1e/2d/2e** (simular → aplicar →
+guardados) definen el diseño real de la pantalla de Escenario como un flujo de **tres
+pantallas encadenadas**, bastante más rico que el formulario + tabla construido en
+E20-1 día 1 (que se hizo sin haber visto todavía estos mockups, porque el adjunto no
+llegó a esa sesión). Documentado en el propio `E19_SISTEMA_DISENO.md` §5. Pendiente de
+decisión del usuario: rediseñar `#escenario-motor` hacia ese mockup ahora, o seguir
+sumando tipos de decisión con el patrón actual del día 1 y reconciliar visualmente más
+adelante.
+
+## Cierre de sesión — E20-1, día 1: el motor de Escenario entra en la interfaz
+
+- PR #1 (Bloque 1 E19 completo + E20-0 días 1-4) revisado y fusionado a `main`.
+  Rama de trabajo reiniciada sobre el nuevo `main` (mismo nombre,
+  `claude/repo-analysis-3dupjd`, historial limpio).
+- Arranca el Bloque 2 de verdad: `canonical-scenario-engine.js` deja de vivir
+  solo en tests y se enlaza por primera vez desde `index.html`. Antes de
+  tocar nada se revisaron las tres pantallas legacy que ya rozan el concepto
+  de "decisiones" (`#new-life-definitive`, `#new-life-simulation`,
+  `#simulator`/`decision-studio`): ninguna usa el sistema E19, ninguna llama
+  al motor nuevo, y las tres suman miles de líneas acopladas a un pipeline
+  antiguo — retocar cualquiera de entrada habría sido arriesgado y no era lo
+  pedido. Se optó, como en toda esta fase, por añadir sin tocar: pantalla
+  nueva `#escenario-motor` ("Motor de Escenario"), enlazada desde "Decidir" y
+  desde el buscador (`e17-experience.js`), con markup **100 % `.e19-*`** — la
+  primera pantalla del proyecto construida enteramente en el sistema de
+  diseño E19 desde cero, sin heredar ni una clase antigua.
+- Alcance del día 1, deliberadamente mínimo: un único tipo de decisión
+  (**amortizar deuda**) de punta a punta, para probar el circuito completo
+  con datos reales antes de sumar el resto de tipos en próximos días — el
+  mismo patrón día a día que se usó para construir el propio motor. El
+  usuario elige una deuda viva real (`debtContractSourceRows()`), importe y
+  mes real del horizonte (`canonicalEngineInput().months`); al añadirla, se
+  llama de verdad a `FinanceCanonicalScenarioEngine.resolveEscenario()` — sin
+  simular ni fingir un resultado — y se muestra si quedó **aplicada** o
+  **rechazada con el motivo real** (guardarraíl incumplido, deuda ya cerrada,
+  conflicto con otra decisión…), más el efecto en la liquidez mínima
+  (antes/después, con la cifra exacta que devuelve el motor).
+- Guardarraíl opcional en el propio formulario: si se indica un saldo mínimo,
+  se pasa tal cual a `context.guardarrailes.saldoMinimoAbsoluto` y las
+  decisiones que lo rompan se rechazan de verdad, visible en la tabla.
+- Simplificación explícita de este día: la lista de decisiones vive solo en
+  memoria de la pestaña del navegador — no persiste todavía entre sesiones.
+  Se documenta aquí en vez de fingir que sí.
+- Verificado con Playwright contra la app real servida localmente: opciones
+  de deuda y mes cargadas con datos reales, alta de una decisión, resultado
+  "Aplicada" devuelto por el motor real, KPI de liquidez mínima calculado, y
+  retirada de la decisión limpia el estado. Sin peticiones de red fallidas
+  para los dos scripts nuevos (`canonical-scenario-schema.js`,
+  `canonical-scenario-engine.js`).
+- 403 pruebas (403 pass, 0 `test.todo`), `npm run verify` en verde.
+- Pendiente para próximos días: el resto de tipos de decisión soportados por
+  el motor (refinanciar, comprar, imprevisto, proyecto…), y decidir si esta
+  pantalla se queda como está o se fusiona más adelante con alguna de las
+  tres legacy.
+
 ## Decisión de publicación: un único sitio en desarrollo
 
 A petición del usuario se creó una copia fija del repositorio en

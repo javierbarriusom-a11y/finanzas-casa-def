@@ -18031,6 +18031,508 @@ function renderDebtLiquidationPlan() {
   renderAcceleratedDebtPlan();
 }
 
+// ---------------------------------------------------------------------------------------------
+// E20-1, día 1: primera integración real de canonical-scenario-engine.js en la interfaz. Alcance
+// deliberadamente mínimo — un único tipo de decisión (amortizar deuda) de punta a punta, para
+// probar el circuito completo con datos reales antes de añadir el resto de tipos en próximas
+// fases, igual que se construyó el propio motor día a día. La lista de decisiones vive solo en
+// memoria de esta sesión de navegador — no persiste todavía, y se documenta así en vez de fingir
+// que sí (ver PROJECT_STATE.md).
+// ---------------------------------------------------------------------------------------------
+let escenarioMotorDecisions = [];
+let escenarioMotorSeq = 0;
+let escenarioMotorSavedSeq = 0;
+let escenarioMotorGuardrailValue = null;
+
+function escenarioMotorBaseInput() {
+  return canonicalEngineInput(projectPlan.outflows || []);
+}
+
+// Incluye el plan reunificado sintético (canonicalDebtContractRows añade «reunified-plan-current»
+// cuando existe) además de los contratos con nombre propio, para que amortizar el plan combinado
+// sea un objetivo válido igual que cualquier otra deuda activa.
+function escenarioMotorDebtOptions() {
+  return canonicalDebtContractRows().filter(
+    (contract) => contract.paymentStatus !== "settled" && contract.paymentStatus !== "reunified" && Number(contract.currentPrincipal) > 0
+  );
+}
+
+function escenarioMotorDebtLabel(contract) {
+  return contract.entity ? `${contract.entity} ${contract.type || ""}`.trim() : contract.label || contract.id;
+}
+
+function populateEscenarioMotorControls(baseInput) {
+  const debtSelect = qs("escenarioMotorDebt");
+  const monthSelect = qs("escenarioMotorMonth");
+  if (!debtSelect || !monthSelect) return;
+  const previousDebt = debtSelect.value;
+  const previousMonth = monthSelect.value;
+  const debts = escenarioMotorDebtOptions();
+  debtSelect.innerHTML = debts.length
+    ? debts
+        .map((contract) => `<option value="${escapeHtml(contract.id)}">${escapeHtml(escenarioMotorDebtLabel(contract))} · ${money(contract.currentPrincipal, true)}</option>`)
+        .join("")
+    : `<option value="">Sin deudas vivas</option>`;
+  if (debts.some((contract) => contract.id === previousDebt)) debtSelect.value = previousDebt;
+  monthSelect.innerHTML = baseInput.months.map((month) => `<option value="${escapeHtml(month.monthKey)}">${escapeHtml(month.month)}</option>`).join("");
+  if (baseInput.months.some((month) => month.monthKey === previousMonth)) monthSelect.value = previousMonth;
+}
+
+// Traduce los códigos de rechazo reales del motor (canonical-scenario-engine.js) a texto legible.
+// Ningún resultado se inventa aquí: solo se etiqueta lo que el motor ya ha decidido.
+function escenarioMotorResultInfo(resultado) {
+  const table = {
+    aplicada: { text: "Aplicada", badge: "e19-badge-success" },
+    "guardarril-incumplido": { text: "Rechazada: rompe el saldo mínimo indicado", badge: "e19-badge-danger" },
+    "conflicto-bloqueante": { text: "Rechazada: la deuda ya la afecta otra decisión de este escenario", badge: "e19-badge-danger" },
+    "deuda-ya-cerrada": { text: "Rechazada: la deuda ya está cerrada", badge: "e19-badge-danger" },
+    "deuda-desconocida": { text: "Rechazada: deuda no encontrada", badge: "e19-badge-danger" },
+    "sin-objetivo": { text: "Rechazada: falta indicar la deuda", badge: "e19-badge-danger" },
+    "sin-mes-viable": { text: "Rechazada: ningún mes del horizonte la sostiene", badge: "e19-badge-danger" },
+  };
+  return table[resultado] || { text: resultado, badge: "e19-badge-neutral" };
+}
+
+function escenarioMotorEfectoLabel(efecto) {
+  const table = {
+    "cierre-total": "Amortización total · deuda cerrada",
+    "amortizacion-parcial": "Amortización parcial",
+  };
+  return table[efecto] || efecto || "";
+}
+
+function runEscenarioMotor(baseInput, decisions, guardrailValue) {
+  const engine = window.FinanceCanonicalScenarioEngine;
+  if (!engine) return null;
+  const context = {
+    baseInput,
+    debtContracts: canonicalDebtContractRows(),
+    meta: { reason: "escenario-motor-ui" },
+  };
+  if (Number.isFinite(guardrailValue) && guardrailValue > 0) {
+    context.guardarrailes = { saldoMinimoAbsoluto: guardrailValue };
+  }
+  return engine.resolveEscenario(decisions || [], context);
+}
+
+// El mes en que una deuda queda a cero, a partir de su propio estado (cuota + plazo restante),
+// nunca de una cifra inventada: si la deuda sigue activa se proyecta cuota fija durante
+// remainingInstallments meses desde su último cambio real (o desde el inicio del horizonte si
+// nadie la ha tocado); si el resultado cae fuera del horizonte modelado se dice explícitamente.
+function escenarioMotorContractPayoffMonth(contract, months) {
+  if (!months.length) return null;
+  if (!(Number(contract.currentPrincipal) > 0) || Number(contract.remainingInstallments) <= 0) {
+    return contract.scheduleEffectiveFrom || months[0].monthKey;
+  }
+  const startIndex = contract.scheduleEffectiveFrom
+    ? Math.max(0, months.findIndex((month) => month.monthKey === contract.scheduleEffectiveFrom))
+    : 0;
+  const payoffIndex = startIndex + Math.max(0, Math.floor(contract.remainingInstallments) - 1);
+  return payoffIndex < months.length ? months[payoffIndex].monthKey : null;
+}
+
+function escenarioMotorLibreDeDeuda(debtStateFinal, months) {
+  const withPrincipal = (debtStateFinal || []).filter((contract) => Number(contract.currentPrincipal) > 0);
+  if (!withPrincipal.length) return "sin deuda pendiente";
+  const active = withPrincipal.filter((contract) => contract.paymentStatus === "active");
+  // Una deuda sin cuota activa (suspendida, o reunificada sin que el plan combinado esté en los
+  // datos) no tiene calendario de pago del que proyectar cierre: se dice explícitamente en vez de
+  // inventar una fecha a partir de una cuota que hoy no se está pagando.
+  if (!active.length) return "sin fecha estimable · sin cuota activa";
+  const payoffs = active.map((contract) => escenarioMotorContractPayoffMonth(contract, months));
+  if (payoffs.some((value) => value === null)) return "fuera de horizonte";
+  const latest = payoffs.sort().at(-1);
+  return active.length < withPrincipal.length ? `${latest} · queda deuda sin cuota activa` : latest;
+}
+
+function escenarioMotorMonthLabel(value) {
+  if (!value) return "—";
+  const match = String(value).match(/^(\d{4}-\d{2})(.*)$/);
+  if (!match) return value;
+  const date = dateFromMonthKey(match[1]);
+  return date ? `${monthLabel(date)}${match[2]}` : value;
+}
+
+function escenarioMotorSummaryFor(result, months) {
+  if (!result || !result.valid) return { minimoLiquidez: null, liquidezFinal: null, libreDeDeuda: null };
+  return {
+    minimoLiquidez: result.series.length ? Math.min(...result.series.map((row) => row.totalLiquidity)) : null,
+    liquidezFinal: result.series.length ? result.series.at(-1).totalLiquidity : null,
+    libreDeDeuda: escenarioMotorLibreDeDeuda(result.debtStateFinal, months),
+  };
+}
+
+function escenarioMotorKpiCardsHtml(baseSummary, scenarioSummary) {
+  const liquidezDelta = round2((scenarioSummary.liquidezFinal ?? 0) - (baseSummary.liquidezFinal ?? 0));
+  const minimoDelta = round2((scenarioSummary.minimoLiquidez ?? 0) - (baseSummary.minimoLiquidez ?? 0));
+  const bajoReserva = Number.isFinite(escenarioMotorGuardrailValue) && (scenarioSummary.minimoLiquidez ?? 0) < escenarioMotorGuardrailValue;
+  return `
+    <div class="e19-kpi">
+      <span class="e19-kpi-label">Liquidez final del horizonte</span>
+      <span class="e19-kpi-value">${money(scenarioSummary.liquidezFinal ?? 0, true)}</span>
+      <span class="e19-kpi-delta ${liquidezDelta >= 0 ? "is-up" : "is-down"}">${liquidezDelta >= 0 ? "+" : ""}${money(liquidezDelta, true)}</span>
+    </div>
+    <div class="e19-kpi${bajoReserva ? " is-danger" : ""}">
+      <span class="e19-kpi-label">Caja mínima del horizonte</span>
+      <span class="e19-kpi-value">${money(scenarioSummary.minimoLiquidez ?? 0, true)}</span>
+      <span class="e19-kpi-delta ${minimoDelta >= 0 ? "is-up" : "is-down"}">${minimoDelta >= 0 ? "+" : ""}${money(minimoDelta, true)}${bajoReserva ? " · bajo el saldo mínimo indicado" : ""}</span>
+    </div>
+    <div class="e19-kpi">
+      <span class="e19-kpi-label">Libre de deuda</span>
+      <span class="e19-kpi-value">${escapeHtml(escenarioMotorMonthLabel(scenarioSummary.libreDeDeuda))}</span>
+      <span class="e19-kpi-note">Antes: ${escapeHtml(escenarioMotorMonthLabel(baseSummary.libreDeDeuda))}</span>
+    </div>
+  `;
+}
+
+// Gráfico plan actual vs. simulación (mockup 1e). Reutiliza projectChartTickIndexes (ya usado por
+// el simulador de proyectos) para las etiquetas de mes — misma convención visual en toda la app.
+function renderEscenarioMotorChart(baseSeries, scenarioSeries, months, guardrailValue) {
+  const svg = qs("escenarioMotorChart");
+  if (!svg || !baseSeries.length || !scenarioSeries.length) return;
+  const width = svg.clientWidth || 640;
+  const height = 170;
+  const pad = { left: 50, right: 16, top: 16, bottom: 26 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const values = [...baseSeries.map((row) => row.totalLiquidity), ...scenarioSeries.map((row) => row.totalLiquidity)];
+  if (Number.isFinite(guardrailValue)) values.push(guardrailValue);
+  const minV = Math.min(...values, 0);
+  const maxV = Math.max(...values, 1);
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const n = baseSeries.length;
+  const x = (i) => pad.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+  const y = (value) => pad.top + plotH - ((value - minV) / Math.max(1, maxV - minV)) * plotH;
+  const pathFor = (series) => series.map((row, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(2)} ${y(row.totalLiquidity).toFixed(2)}`).join(" ");
+
+  let markup = `<path class="chart-line-base" d="${pathFor(baseSeries)}" />`;
+  markup += `<path class="chart-line-scenario" d="${pathFor(scenarioSeries)}" />`;
+  if (Number.isFinite(guardrailValue)) {
+    const ry = y(guardrailValue).toFixed(2);
+    markup += `<line class="chart-line-reserve" x1="${pad.left}" x2="${width - pad.right}" y1="${ry}" y2="${ry}" />`;
+  }
+  projectChartTickIndexes(months, width).forEach((idx) => {
+    markup += `<text class="chart-label" x="${(x(idx) - 14).toFixed(2)}" y="${height - 6}">${escapeHtml(months[idx]?.month || "")}</text>`;
+  });
+  svg.insertAdjacentHTML("beforeend", markup);
+}
+
+function escenarioMotorNavigate(viewId) {
+  history.pushState(null, "", `#${viewId}`);
+  setActiveView(viewId);
+}
+
+function escenarioMotorDraftName() {
+  const debts = new Map(canonicalDebtContractRows().map((contract) => [contract.id, contract]));
+  const parts = escenarioMotorDecisions.map((decision) => {
+    const contract = debts.get(decision.params.deudaId);
+    return `Amortizar ${contract ? escenarioMotorDebtLabel(contract) : decision.params.deudaId}`;
+  });
+  return parts.join(" + ") || "Escenario sin nombre";
+}
+
+function renderEscenarioSimular() {
+  const baseInput = escenarioMotorBaseInput();
+  populateEscenarioMotorControls(baseInput);
+
+  const guardrailField = qs("escenarioMotorGuardrail");
+  if (guardrailField && document.activeElement !== guardrailField) {
+    guardrailField.value = escenarioMotorGuardrailValue ?? "";
+  }
+
+  const body = qs("escenarioMotorDecisionsList");
+  const empty = qs("escenarioMotorEmpty");
+  const kpis = qs("escenarioMotorKpis");
+  const warning = qs("escenarioMotorWarning");
+  const warningText = qs("escenarioMotorWarningText");
+  const autoAdjustButton = qs("escenarioMotorAutoAdjust");
+  const goApplyButton = qs("escenarioMotorGoApply");
+  if (!body || !kpis) return;
+
+  const baseResult = runEscenarioMotor(baseInput, [], null);
+
+  if (!escenarioMotorDecisions.length) {
+    body.innerHTML = "";
+    if (empty) empty.hidden = false;
+    kpis.innerHTML = "";
+    if (warning) warning.hidden = true;
+    if (goApplyButton) goApplyButton.disabled = true;
+    renderEscenarioMotorChart(baseResult?.series || [], baseResult?.series || [], baseInput.months, escenarioMotorGuardrailValue);
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  const result = runEscenarioMotor(baseInput, escenarioMotorDecisions, escenarioMotorGuardrailValue);
+  const debts = new Map(canonicalDebtContractRows().map((contract) => [contract.id, contract]));
+  const resultadosById = new Map((result?.resultados || []).map((item) => [item.id, item]));
+  const rejected = (result?.resultados || []).filter((item) => item.resultado !== "aplicada");
+
+  body.innerHTML = escenarioMotorDecisions
+    .map((decision) => {
+      const contract = debts.get(decision.params.deudaId);
+      const resultado = resultadosById.get(decision.id);
+      const info = resultado ? escenarioMotorResultInfo(resultado.resultado) : { text: "Sin calcular", badge: "e19-badge-neutral" };
+      const mesLabel = decision.planificacion.modo === "optimo"
+        ? (resultado?.mesResuelto ? `Óptimo · ${escenarioMotorMonthLabel(resultado.mesResuelto)}` : "Buscando mes óptimo…")
+        : escenarioMotorMonthLabel(decision.planificacion.mesManual);
+      return `<li class="escenario-motor-decision-item">
+        <div class="escenario-motor-decision-main">
+          <strong>${escapeHtml(contract ? escenarioMotorDebtLabel(contract) : decision.params.deudaId)}</strong>
+          <span>${money(decision.params.importe, true)} · ${escapeHtml(mesLabel)}</span>
+        </div>
+        <div class="escenario-motor-decision-status">
+          <span class="e19-badge ${info.badge}">${escapeHtml(info.text)}</span>
+          <button type="button" class="escenario-motor-decision-remove" data-escenario-motor-remove="${escapeHtml(decision.id)}">Quitar</button>
+        </div>
+      </li>`;
+    })
+    .join("");
+
+  renderEscenarioMotorChart(baseResult?.series || [], result?.series || baseResult?.series || [], baseInput.months, escenarioMotorGuardrailValue);
+
+  if (!result || !result.valid) {
+    kpis.innerHTML = "";
+    if (warning) warning.hidden = true;
+    if (goApplyButton) goApplyButton.disabled = true;
+    return;
+  }
+
+  const baseSummary = escenarioMotorSummaryFor(baseResult, baseInput.months);
+  const scenarioSummary = escenarioMotorSummaryFor(result, baseInput.months);
+  kpis.innerHTML = escenarioMotorKpiCardsHtml(baseSummary, scenarioSummary);
+
+  if (rejected.length) {
+    if (warning) warning.hidden = false;
+    const info = escenarioMotorResultInfo(rejected[0].resultado);
+    if (warningText) {
+      warningText.textContent = rejected.length > 1
+        ? `${info.text} (y ${rejected.length - 1} decisión(es) más sin aplicar).`
+        : `${info.text}.`;
+    }
+    if (autoAdjustButton) autoAdjustButton.hidden = !rejected.some((item) => item.resultado === "guardarril-incumplido");
+    if (goApplyButton) goApplyButton.disabled = true;
+  } else {
+    if (warning) warning.hidden = true;
+    if (goApplyButton) goApplyButton.disabled = false;
+  }
+}
+
+function handleEscenarioMotorSubmit(event) {
+  event.preventDefault();
+  const deudaId = qs("escenarioMotorDebt")?.value;
+  const importe = Number(qs("escenarioMotorAmount")?.value);
+  const mesManual = qs("escenarioMotorMonth")?.value;
+  if (!deudaId || !Number.isFinite(importe) || importe <= 0 || !mesManual) return;
+  escenarioMotorSeq += 1;
+  escenarioMotorDecisions.push({
+    id: `escenario-motor-${escenarioMotorSeq}`,
+    tipo: "amortizacion",
+    activa: true,
+    orden: escenarioMotorDecisions.length,
+    planificacion: { modo: "manual", mesManual },
+    params: { deudaId, importe },
+  });
+  qs("escenarioMotorAmount").value = "";
+  renderEscenarioSimular();
+}
+
+function handleEscenarioMotorRemove(id) {
+  escenarioMotorDecisions = escenarioMotorDecisions.filter((decision) => decision.id !== id);
+  renderEscenarioSimular();
+}
+
+function handleEscenarioMotorGuardrailInput(event) {
+  const value = Number(event.target.value);
+  escenarioMotorGuardrailValue = Number.isFinite(value) && value > 0 ? value : null;
+  renderEscenarioSimular();
+}
+
+// «Ajustar automáticamente» reutiliza el buscador de mes óptimo real del motor (planificacion.modo
+// "optimo", día 3 de E20-0): no calcula nada aquí, solo cambia cómo se planifica la decisión y deja
+// que el motor busque el primer mes viable — o la rechace con «sin-mes-viable» si no existe.
+function handleEscenarioMotorAutoAdjust() {
+  const baseInput = escenarioMotorBaseInput();
+  const result = runEscenarioMotor(baseInput, escenarioMotorDecisions, escenarioMotorGuardrailValue);
+  const rejectedIds = new Set(
+    (result?.resultados || []).filter((item) => item.resultado === "guardarril-incumplido").map((item) => item.id)
+  );
+  if (!rejectedIds.size) return;
+  escenarioMotorDecisions = escenarioMotorDecisions.map((decision) =>
+    rejectedIds.has(decision.id) ? { ...decision, planificacion: { modo: "optimo" } } : decision
+  );
+  renderEscenarioSimular();
+}
+
+function handleEscenarioMotorGoApply() {
+  if (!escenarioMotorDecisions.length) return;
+  escenarioMotorNavigate("escenario-aplicar");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pantalla 2 · Aplicar escenario (mockup 2d): diferencia línea a línea antes de confirmar. No
+// muta las deudas reales (DEBT_PORTFOLIO es una constante del código, no hay mecanismo en toda la
+// app para reescribirla desde la interfaz) — «aplicar» aquí significa registrar el escenario como
+// el aplicado en la lista de guardados (pantalla 3), con motivo y fecha, de verdad reversible
+// porque no toca ningún dato real. Documentado explícitamente en vez de fingir un commit que no
+// existe.
+// ---------------------------------------------------------------------------------------------
+function renderEscenarioAplicar() {
+  if (!escenarioMotorDecisions.length) {
+    escenarioMotorNavigate("escenario-simular");
+    return;
+  }
+  const baseInput = escenarioMotorBaseInput();
+  const baseResult = runEscenarioMotor(baseInput, [], null);
+  const result = runEscenarioMotor(baseInput, escenarioMotorDecisions, escenarioMotorGuardrailValue);
+  const debts = new Map(canonicalDebtContractRows().map((contract) => [contract.id, contract]));
+  const resultadosById = new Map((result?.resultados || []).map((item) => [item.id, item]));
+
+  const titleEl = qs("escenarioAplicarTitle");
+  if (titleEl) titleEl.textContent = escenarioMotorDraftName();
+  const changesTitle = qs("escenarioAplicarChangesTitle");
+  if (changesTitle) changesTitle.textContent = `${escenarioMotorDecisions.length} cambio(s) en el plan`;
+
+  const baseSummary = escenarioMotorSummaryFor(baseResult, baseInput.months);
+  const scenarioSummary = escenarioMotorSummaryFor(result, baseInput.months);
+  const kpis = qs("escenarioAplicarKpis");
+  if (kpis) kpis.innerHTML = escenarioMotorKpiCardsHtml(baseSummary, scenarioSummary);
+
+  const body = qs("escenarioAplicarDiffBody");
+  if (body) {
+    body.innerHTML = escenarioMotorDecisions
+      .map((decision) => {
+        const contract = debts.get(decision.params.deudaId);
+        const resultado = resultadosById.get(decision.id);
+        const info = resultado ? escenarioMotorResultInfo(resultado.resultado) : { text: "Sin calcular", badge: "e19-badge-neutral" };
+        const efecto = resultado?.efecto ? escenarioMotorEfectoLabel(resultado.efecto) : info.text;
+        const mesLabel = escenarioMotorMonthLabel(resultado?.mesResuelto || decision.planificacion.mesManual);
+        return `<tr>
+          <td>${escapeHtml(contract ? escenarioMotorDebtLabel(contract) : decision.params.deudaId)}</td>
+          <td>${escapeHtml(efecto)}</td>
+          <td>${money(decision.params.importe, true)}</td>
+          <td>${escapeHtml(mesLabel)}</td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  const confirmButton = qs("escenarioAplicarConfirm");
+  const allApplied = (result?.resultados || []).length > 0 && (result?.resultados || []).every((item) => item.resultado === "aplicada");
+  if (confirmButton) confirmButton.disabled = !allApplied;
+}
+
+function handleEscenarioAplicarBack() {
+  escenarioMotorNavigate("escenario-simular");
+}
+
+function loadEscenarioMotorSaved() {
+  try {
+    const parsed = JSON.parse(storageGet(storageKey("escenario-motor-saved"), "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveEscenarioMotorSavedList(list) {
+  storageSet(storageKey("escenario-motor-saved"), JSON.stringify(list));
+}
+
+function handleEscenarioAplicarConfirm(event) {
+  event.preventDefault();
+  const motivoInput = qs("escenarioAplicarMotivo");
+  const motivo = (motivoInput?.value || "").trim();
+  if (!motivo) {
+    motivoInput?.focus();
+    return;
+  }
+  const saved = loadEscenarioMotorSaved().map((entry) => (entry.estado === "aplicado" ? { ...entry, estado: "guardado" } : entry));
+  escenarioMotorSavedSeq += 1;
+  saved.unshift({
+    id: `escenario-guardado-${Date.now()}-${escenarioMotorSavedSeq}`,
+    nombre: escenarioMotorDraftName(),
+    motivo,
+    estado: "aplicado",
+    fecha: new Date().toISOString(),
+    decisiones: JSON.parse(JSON.stringify(escenarioMotorDecisions)),
+    guardrailValue: escenarioMotorGuardrailValue,
+  });
+  saveEscenarioMotorSavedList(saved);
+  escenarioMotorDecisions = [];
+  if (motivoInput) motivoInput.value = "";
+  escenarioMotorNavigate("escenario-guardados");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pantalla 3 · Escenarios guardados (mockup 2e). Los KPIs de cada tarjeta se recalculan al vuelo
+// con el motor real sobre el estado actual de las deudas — nunca se leen cifras congeladas del
+// momento en que se guardó, para que no diverjan en silencio de la realidad. «Recomendado» y
+// «Caducado» del mockup no se implementan: no hay todavía motor de recomendación ni concepto de
+// oferta con vencimiento — solo «Aplicado» y «Guardado», que sí están respaldados por datos reales.
+// ---------------------------------------------------------------------------------------------
+function renderEscenarioGuardados() {
+  const list = loadEscenarioMotorSaved();
+  const container = qs("escenarioGuardadosList");
+  const empty = qs("escenarioGuardadosEmpty");
+  if (!container) return;
+  if (!list.length) {
+    container.innerHTML = "";
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  const baseInput = escenarioMotorBaseInput();
+  container.innerHTML = list
+    .map((entry) => {
+      const result = runEscenarioMotor(baseInput, entry.decisiones || [], entry.guardrailValue ?? null);
+      const summary = escenarioMotorSummaryFor(result, baseInput.months);
+      const estadoInfo = entry.estado === "aplicado"
+        ? { text: "Aplicado", badge: "e19-badge-success" }
+        : { text: "Guardado", badge: "e19-badge-neutral" };
+      const fecha = entry.fecha ? new Date(entry.fecha).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }) : "";
+      return `<article class="escenario-motor-saved-card${entry.estado === "aplicado" ? " is-aplicado" : ""}">
+        <div class="escenario-motor-saved-head">
+          <span class="e19-badge ${estadoInfo.badge}">${estadoInfo.text}</span>
+          <strong>${escapeHtml(entry.nombre || "Escenario")}</strong>
+          <small>${escapeHtml(entry.motivo || "")}${fecha ? ` · ${escapeHtml(fecha)}` : ""}</small>
+        </div>
+        <div class="escenario-motor-saved-meta">
+          <div><span>Libre de deuda</span><strong>${escapeHtml(escenarioMotorMonthLabel(summary.libreDeDeuda))}</strong></div>
+          <div><span>Caja mínima</span><strong>${money(summary.minimoLiquidez ?? 0, true)}</strong></div>
+          <div><span>Liquidez final</span><strong>${money(summary.liquidezFinal ?? 0, true)}</strong></div>
+        </div>
+        <div class="escenario-motor-saved-actions">
+          <button type="button" class="e19-btn e19-btn-secondary" data-escenario-guardado-load="${escapeHtml(entry.id)}">Cargar en simulador</button>
+          <button type="button" class="e19-btn e19-btn-secondary" data-escenario-guardado-delete="${escapeHtml(entry.id)}">Eliminar</button>
+        </div>
+      </article>`;
+    })
+    .join("");
+}
+
+function handleEscenarioGuardadosLoad(id) {
+  const entry = loadEscenarioMotorSaved().find((item) => item.id === id);
+  if (!entry) return;
+  escenarioMotorDecisions = JSON.parse(JSON.stringify(entry.decisiones || []));
+  escenarioMotorSeq = escenarioMotorDecisions.length;
+  escenarioMotorGuardrailValue = entry.guardrailValue ?? null;
+  escenarioMotorNavigate("escenario-simular");
+}
+
+function handleEscenarioGuardadosDelete(id) {
+  saveEscenarioMotorSavedList(loadEscenarioMotorSaved().filter((entry) => entry.id !== id));
+  renderEscenarioGuardados();
+}
+
+function handleEscenarioGuardadosNew() {
+  escenarioMotorDecisions = [];
+  escenarioMotorGuardrailValue = null;
+  escenarioMotorNavigate("escenario-simular");
+}
+
 function renderActiveSection(viewId = viewFromHash()) {
   if (!lastSimulation.length) return;
   switch (viewId) {
@@ -18054,6 +18556,15 @@ function renderActiveSection(viewId = viewFromHash()) {
       break;
     case "new-life-definitive":
       renderNewLifeDefinitive();
+      break;
+    case "escenario-simular":
+      renderEscenarioSimular();
+      break;
+    case "escenario-aplicar":
+      renderEscenarioAplicar();
+      break;
+    case "escenario-guardados":
+      renderEscenarioGuardados();
       break;
     case "debt-roadmap":
       renderE14bPanel();
@@ -18540,6 +19051,23 @@ async function init() {
     if (scrollButton) {
       qs(scrollButton.dataset.lifeDefScroll)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+  });
+  qs("escenarioMotorForm")?.addEventListener("submit", handleEscenarioMotorSubmit);
+  qs("escenarioMotorDecisionsList")?.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-escenario-motor-remove]");
+    if (removeButton) handleEscenarioMotorRemove(removeButton.dataset.escenarioMotorRemove);
+  });
+  qs("escenarioMotorGuardrail")?.addEventListener("input", handleEscenarioMotorGuardrailInput);
+  qs("escenarioMotorAutoAdjust")?.addEventListener("click", handleEscenarioMotorAutoAdjust);
+  qs("escenarioMotorGoApply")?.addEventListener("click", handleEscenarioMotorGoApply);
+  qs("escenarioAplicarBack")?.addEventListener("click", handleEscenarioAplicarBack);
+  qs("escenarioAplicarForm")?.addEventListener("submit", handleEscenarioAplicarConfirm);
+  qs("escenarioGuardadosNew")?.addEventListener("click", handleEscenarioGuardadosNew);
+  qs("escenarioGuardadosList")?.addEventListener("click", (event) => {
+    const loadButton = event.target.closest("[data-escenario-guardado-load]");
+    if (loadButton) { handleEscenarioGuardadosLoad(loadButton.dataset.escenarioGuardadoLoad); return; }
+    const deleteButton = event.target.closest("[data-escenario-guardado-delete]");
+    if (deleteButton) handleEscenarioGuardadosDelete(deleteButton.dataset.escenarioGuardadoDelete);
   });
   qs("debt-liquidation-plan")?.addEventListener("click", (event) => {
     const targetButton = event.target.closest("[data-debt-plan-target]");
