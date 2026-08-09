@@ -2,6 +2,28 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Mockups originales documentados en el repositorio
+
+El usuario aportó el documento de mockups completo ("Finanzas Casa · Mockups", 15
+pantallas en 3 bloques) que hasta ahora solo existía como archivo aportado en
+conversación — `design-tokens.css` ya citaba un `docs/E19_SISTEMA_DISENO.md` que nunca
+se había escrito. Ahora existe: `docs/E19_SISTEMA_DISENO.md` documenta el origen, los
+tokens (ya en `design-tokens.css`, ahora también en prosa), los componentes construidos y
+el catálogo completo de las 15 pantallas con su estado de migración. El archivo original
+se conserva en `docs/mockups/` (fuente + capturas por pantalla), como referencia interna
+— no se sirve desde `index.html` ni se enlaza al sitio público, ni lo tocan
+`build-public-site.mjs`/`check-public-privacy.mjs` (ambos trabajan con listas explícitas
+de archivos, no escanean el repo entero).
+
+Hallazgo importante al revisarlos: los mockups **1e/2d/2e** (simular → aplicar →
+guardados) definen el diseño real de la pantalla de Escenario como un flujo de **tres
+pantallas encadenadas**, bastante más rico que el formulario + tabla construido en
+E20-1 día 1 (que se hizo sin haber visto todavía estos mockups, porque el adjunto no
+llegó a esa sesión). Documentado en el propio `E19_SISTEMA_DISENO.md` §5. Pendiente de
+decisión del usuario: rediseñar `#escenario-motor` hacia ese mockup ahora, o seguir
+sumando tipos de decisión con el patrón actual del día 1 y reconciliar visualmente más
+adelante.
+
 ## Cierre de sesión — E20-1, día 1: el motor de Escenario entra en la interfaz
 
 - PR #1 (Bloque 1 E19 completo + E20-0 días 1-4) revisado y fusionado a `main`.
