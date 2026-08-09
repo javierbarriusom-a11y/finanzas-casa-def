@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.webmanifest?v=20260808e18a4" />
     <link rel="stylesheet" href="styles.css?v=20260808e18a4" />
     <link rel="stylesheet" href="p2.css?v=20260801e9c" />
-    <link rel="stylesheet" href="design-tokens.css?v=20260809e20b1" />
+    <link rel="stylesheet" href="design-tokens.css?v=20260809e20b4" />
   </head>
   <body>
     <a class="skip-link" href="#mainContent">Saltar al contenido</a>
@@ -55,7 +55,10 @@
               <a href="#new-life-simulation" data-e17-group="analysis">Escenarios de vida y deuda</a>
               <a href="#escenario-simular" data-e17-group="analysis">Escenario · simular (nuevo)</a>
               <a href="#escenario-guardados" data-e17-group="analysis">Escenario · guardados (nuevo)</a>
+              <a href="#deuda-comparar" data-e17-group="analysis">Comparar estrategias de deuda (nuevo)</a>
+              <a href="#deuda-ruta" data-e17-group="analysis">Plan de deuda · ruta (nuevo)</a>
               <a href="#debt-roadmap" data-e17-group="analysis">Plan de deuda</a>
+              <a href="#asesor-decision" data-e17-group="assistants">Asesor ejecutivo (nuevo)</a>
               <a href="#executive-advisor" data-e17-group="assistants">Asesor ejecutivo</a>
               <a href="#virtual-advisor" data-e17-group="assistants">Asesor virtual</a>
               <a href="#debt-liquidation-plan" data-e17-group="analysis">Plan deuda óptimo</a>
@@ -75,6 +78,7 @@
               <a href="#data-entry" data-e17-group="data">Carga de datos</a>
               <a href="#movements" data-e17-group="data">Movimientos</a>
               <a href="#data-audit" data-e17-group="data">Datos y auditoría</a>
+              <a href="#conciliar" data-e17-group="data">Conciliación (nuevo)</a>
               <a href="#reconciliation" data-e17-group="data">Conciliación</a>
               <a href="#operations-manual" data-e17-group="data">Guía operativa</a>
             </div>
@@ -924,6 +928,154 @@
 
             <div class="escenario-motor-saved-list" id="escenarioGuardadosList"></div>
             <p class="e19-subtitle" id="escenarioGuardadosEmpty">Todavía no has aplicado ningún escenario.</p>
+          </section>
+
+          <section class="e19-deuda-decidir view-section" id="deuda-comparar">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow">Decidir · comparar estrategias</p>
+                <h2 class="e19-heading">Tres formas reales de organizar la deuda</h2>
+                <p class="e19-subtitle">Comparar no escribe nada en el plan. Cada estrategia se simula de verdad con el motor de Escenario sobre tu cartera actual — elige una para ver su ruta o aplicarla.</p>
+              </div>
+              <div class="visual-controls">
+                <label class="deuda-decidir-reserve-label">
+                  <span>Reserva mínima al secuenciar</span>
+                  <input id="deudaCompararReserve" type="number" min="0" step="0.01" placeholder="€, vacío = 0 € por defecto" />
+                </label>
+              </div>
+            </div>
+
+            <div class="deuda-decidir-strategy-grid" id="deudaCompararGrid"></div>
+
+            <div class="e19-insight" id="deudaCompararInsight" hidden></div>
+
+            <p class="e19-kpi-note deuda-decidir-note">No se incluye «reunificación» como cuarta estrategia: modelarla exigiría inventar unas condiciones de préstamo (TAE, plazo) que no existen todavía como oferta real en los datos. En cuanto haya una oferta de reunificación registrada, puede añadirse como estrategia comparable.</p>
+          </section>
+
+          <section class="e19-deuda-decidir view-section" id="deuda-ruta">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow">Decidir · plan de deuda</p>
+                <h2 class="e19-heading" id="deudaRutaTitle">Ruta de deuda</h2>
+                <p class="e19-subtitle" id="deudaRutaSubtitle"></p>
+              </div>
+              <div class="visual-controls">
+                <div class="deuda-decidir-tabs" id="deudaRutaTabs" role="tablist"></div>
+                <a class="e19-btn e19-btn-secondary" href="#deuda-comparar">Comparar estrategias</a>
+              </div>
+            </div>
+
+            <article class="e19-card deuda-ruta-chart-card">
+              <h3 class="escenario-motor-panel-title">Cómo se apaga la deuda</h3>
+              <p class="e19-kpi-note">«Deuda viva» es el principal pendiente de las deudas que esta ruta todavía no ha saldado — cae de golpe el mes en que se salda; no es un calendario de amortización mes a mes.</p>
+              <svg id="deudaRutaChart" class="deuda-ruta-chart"></svg>
+            </article>
+
+            <div class="deuda-ruta-layout">
+              <article class="e19-card">
+                <h3 class="escenario-motor-panel-title">Ruta propuesta</h3>
+                <ol class="deuda-ruta-timeline" id="deudaRutaTimeline"></ol>
+              </article>
+
+              <div class="deuda-ruta-side">
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Cartera</h3>
+                  <div class="deuda-ruta-portfolio" id="deudaRutaPortfolio"></div>
+                </article>
+
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Antes de aplicar</h3>
+                  <ul class="deuda-ruta-checklist" id="deudaRutaChecklist"></ul>
+                  <button type="button" class="e19-btn e19-btn-primary" id="deudaRutaApply">Aplicar ruta</button>
+                  <p class="e19-kpi-note">Se pedirá un motivo y quedará como escenario aplicado, revisable en «Escenarios guardados».</p>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="e19-conciliar view-section" id="conciliar">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow">Control · conciliación</p>
+                <h2 class="e19-heading" id="conciliarTitle">Conciliación</h2>
+                <p class="e19-subtitle" id="conciliarSubtitle"></p>
+              </div>
+              <div class="visual-controls">
+                <button type="button" class="e19-btn e19-btn-secondary" id="conciliarDownload">Descargar evidencia</button>
+                <button type="button" class="e19-btn e19-btn-primary" id="conciliarClose">Cerrar mes</button>
+              </div>
+            </div>
+
+            <div class="home-kpi-grid" id="conciliarKpis"></div>
+
+            <div class="conciliar-layout">
+              <article class="e19-card">
+                <h3 class="escenario-motor-panel-title">Tareas por causa</h3>
+                <p class="e19-kpi-note">Ordenadas por impacto. Abrir una tarea no corrige ni escribe nada por sí solo.</p>
+                <ol class="conciliar-task-list" id="conciliarTasks"></ol>
+              </article>
+
+              <div class="deuda-ruta-side">
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Al cerrar el mes</h3>
+                  <ul class="deuda-ruta-checklist" id="conciliarChecklist"></ul>
+                </article>
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Meses anteriores</h3>
+                  <div class="conciliar-month-history" id="conciliarHistory"></div>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="e19-asesor-decision view-section" id="asesor-decision">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow">Decidir · asesor ejecutivo</p>
+                <h2 class="e19-heading">Qué hacer ahora</h2>
+                <p class="e19-subtitle">La oferta de deuda registrada más urgente, con lo que cambia si la aplicas. Ninguna cifra se inventa: sale de la oferta real y del forecast.</p>
+              </div>
+            </div>
+
+            <div class="e19-card asesor-decision-empty" id="asesorDecisionEmpty" hidden>
+              <h3>No hay ninguna decisión abierta ahora mismo</h3>
+              <p class="e19-subtitle">No tienes ninguna oferta de deuda registrada con vencimiento pendiente de aplicar. Registra una en Plan de deuda para verla aquí.</p>
+              <a class="e19-btn e19-btn-primary" href="#debt-roadmap">Registrar oferta</a>
+            </div>
+
+            <div class="asesor-decision-layout" id="asesorDecisionContent">
+              <article class="e19-card asesor-decision-main">
+                <div class="asesor-decision-head">
+                  <span class="e19-badge e19-badge-neutral" id="asesorDecisionDeadline"></span>
+                  <h3 id="asesorDecisionTitle"></h3>
+                  <strong id="asesorDecisionAmount"></strong>
+                </div>
+                <div class="asesor-decision-stats" id="asesorDecisionStats"></div>
+
+                <h4 class="escenario-motor-panel-title asesor-decision-subtitle">De dónde puede salir el dinero</h4>
+                <p class="e19-kpi-note">Cobertura estimada con los saldos actuales de cada cuenta — no es un reparto ya decidido.</p>
+                <div class="asesor-decision-funding" id="asesorDecisionFunding"></div>
+
+                <div class="asesor-decision-actions">
+                  <a class="e19-btn e19-btn-primary" id="asesorDecisionApply" href="#debt-roadmap">Revisar y aplicar en Plan de deuda</a>
+                </div>
+              </article>
+
+              <div class="deuda-ruta-side">
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Límites que no se rompen</h3>
+                  <ul class="asesor-decision-limits" id="asesorDecisionLimits"></ul>
+                </article>
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Otras ofertas en espera</h3>
+                  <div class="asesor-decision-queue" id="asesorDecisionQueue"></div>
+                </article>
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Con qué datos</h3>
+                  <ul class="asesor-decision-limits" id="asesorDecisionData"></ul>
+                </article>
+              </div>
+            </div>
           </section>
 
           <section class="visual-detail view-section" id="visual-detail">
@@ -2647,7 +2799,7 @@
     <script src="canonical-e9-banking.js?v=20260801e9b"></script>
     <script src="canonical-e9-bank-import.js?v=20260801e9b"></script>
     <script src="canonical-e11b-inbox.js?v=20260801e11b1"></script>
-    <script src="e17-experience.js?v=20260809e20b1"></script>
+    <script src="e17-experience.js?v=20260809e20b4"></script>
     <script src="e18-health.js?v=20260808e18a4"></script>
     <script src="canonical-decisions.js?v=20260714d"></script>
     <script src="canonical-commit-barrier.js?v=20260718p05"></script>

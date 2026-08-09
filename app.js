@@ -3302,6 +3302,7 @@ async function closeCurrentMonthTransaction() {
     ensureRemoteSaveQueue().acknowledge(closedAt);
     saveLocalSnapshot();
     renderReconciliation();
+    if (qs("conciliarTitle")) renderConciliar();
     if (status) status.textContent = `${month} cerrado. Los reales quedan congelados en una versión recuperable.`;
   } catch (error) {
     if (status) status.textContent = `No se cerró el mes: ${error.message}`;
@@ -18533,6 +18534,602 @@ function handleEscenarioGuardadosNew() {
   escenarioMotorNavigate("escenario-simular");
 }
 
+// ---------------------------------------------------------------------------------------------
+// Comparador de estrategias + plan de deuda · ruta (mockups 1b/1c). Construidos sobre el mismo
+// motor E20 (resolveEscenario) que #escenario-simular, no sobre el pipeline heredado de
+// debt-liquidation-plan (DEBT_LIQUIDATION_ASSUMPTIONS, entidades hardcodeadas): cada estrategia es
+// una lista de decisiones "amortizacion" (pago total, modo "optimo") sobre la cartera real
+// (canonicalDebtContractRows), ordenada según el criterio de la estrategia. Solo tres estrategias
+// tienen lógica real hoy — avalancha (TAE desc), bola de nieve (saldo asc) y no tocar nada (sin
+// decisiones) — porque "reunificación" exigiría una oferta real (TAE, plazo) que no existe todavía
+// en los datos; documentado en la propia pantalla en vez de fabricar una cifra.
+// ---------------------------------------------------------------------------------------------
+const DEBT_STRATEGY_DEFINITIONS = [
+  { id: "avalancha", label: "Avalancha", desc: "Salda primero la deuda con mayor TAE." },
+  { id: "bola-nieve", label: "Bola de nieve", desc: "Salda primero la deuda con menor saldo." },
+  { id: "no-tocar", label: "No tocar nada", desc: "Sigue el calendario actual de cada deuda, sin decisiones nuevas." },
+];
+
+let debtStrategyReserveValue = null;
+let deudaRutaSelectedStrategy = "avalancha";
+
+function debtStrategyReserveDefault() {
+  const configured = Number(state?.operatingReserve || 0);
+  return configured > 0 ? configured : null;
+}
+
+// El motor solo aplica guardarraíl si saldoMinimoAbsoluto > 0 (runEscenarioMotor): sin ninguno,
+// "modo optimo" no comprueba nada y todas las decisiones caen en el primer mes del horizonte a la
+// vez, sin importar cuánto quede la liquidez en negativo — inútil para secuenciar de verdad. Si el
+// usuario no ha configurado una reserva real (ni aquí ni en Presupuesto de riesgo), se usa un suelo
+// de 0 € por defecto (no permitir liquidez negativa) en vez de no comprobar nada; se etiqueta
+// siempre cuál de los dos casos es, nunca se oculta.
+function debtStrategyEffectiveReserve(reserveValue) {
+  return Number.isFinite(reserveValue) && reserveValue > 0 ? reserveValue : 0.01;
+}
+
+function debtStrategyOrderedContracts(strategyId) {
+  const contracts = escenarioMotorDebtOptions();
+  if (strategyId === "avalancha") {
+    return contracts.slice().sort((a, b) => (Number(b.apr) || -1) - (Number(a.apr) || -1));
+  }
+  if (strategyId === "bola-nieve") {
+    return contracts.slice().sort((a, b) => Number(a.currentPrincipal) - Number(b.currentPrincipal));
+  }
+  return [];
+}
+
+function debtStrategyDecisions(strategyId) {
+  return debtStrategyOrderedContracts(strategyId).map((contract, index) => ({
+    id: `deuda-estrategia-${strategyId}-${index}`,
+    tipo: "amortizacion",
+    activa: true,
+    orden: index,
+    planificacion: { modo: "optimo" },
+    params: { deudaId: contract.id, importe: Number(contract.currentPrincipal) },
+  }));
+}
+
+function debtStrategyResult(strategyId, baseInput, reserveValue) {
+  const decisions = debtStrategyDecisions(strategyId);
+  const result = runEscenarioMotor(baseInput, decisions, debtStrategyEffectiveReserve(reserveValue));
+  return { decisions, result };
+}
+
+function debtStrategySummary(strategyId, baseInput, reserveValue) {
+  const { decisions, result } = debtStrategyResult(strategyId, baseInput, reserveValue);
+  if (!result || !result.valid) return { decisions, result, libreDeDeuda: null, cajaMinima: null, costeTotal: 0, viable: false, aplicadas: 0, total: decisions.length };
+  const resultadosById = new Map((result.resultados || []).map((item) => [item.id, item]));
+  const aplicadas = decisions.filter((decision) => resultadosById.get(decision.id)?.resultado === "aplicada");
+  const costeTotal = aplicadas.reduce((sum, decision) => sum + Number(decision.params.importe || 0), 0);
+  return {
+    decisions,
+    result,
+    libreDeDeuda: escenarioMotorLibreDeDeuda(result.debtStateFinal, baseInput.months),
+    cajaMinima: result.series.length ? Math.min(...result.series.map((row) => row.totalLiquidity)) : null,
+    costeTotal: round2(costeTotal),
+    viable: aplicadas.length === decisions.length,
+    aplicadas: aplicadas.length,
+    total: decisions.length,
+  };
+}
+
+// escenarioMotorLibreDeDeuda no siempre devuelve una fecha "YYYY-MM": puede devolver "sin deuda
+// pendiente", "sin fecha estimable · sin cuota activa" (nada queda con cuota activa que proyectar,
+// típicamente porque esta estrategia ya saldó todo lo accionable y solo queda un registro fantasma
+// sin cuota, como una reunificación histórica) o "fuera de horizonte" (sí queda cuota activa, pero
+// su cierre cae más allá del horizonte modelado). Comparar estos textos como cadenas ordena mal
+// ("sin..." va antes que cualquier fecha real por alfabeto, no porque sea mejor) — se traduce cada
+// caso a un rango explícito antes de comparar: sin deuda pendiente/sin cuota que proyectar cuentan
+// como lo mejor posible (nada más se puede acelerar), una fecha real ordena por su propio valor, y
+// fuera de horizonte cuenta como lo peor (no se sabe cuándo termina).
+function debtStrategyLibreDeDeudaRank(label) {
+  const text = String(label || "");
+  if (text === "sin deuda pendiente" || text.startsWith("sin fecha estimable")) return "0000-00";
+  if (text === "fuera de horizonte") return "9999-99";
+  const match = text.match(/^(\d{4}-\d{2})/);
+  return match ? match[1] : "9999-98";
+}
+
+// Recomendada = la primera libre de deuda (por el rango de arriba) entre las estrategias que
+// resolvieron TODAS sus decisiones (viable); en empate, la de menor coste total ejecutado. Si
+// ninguna es viable, no se recomienda nada en vez de forzar una elección sobre un resultado a medias.
+function debtStrategyRecommended(summaries) {
+  const viable = summaries.filter((entry) => entry.viable && entry.total > 0);
+  if (!viable.length) return null;
+  return viable
+    .slice()
+    .sort((a, b) => debtStrategyLibreDeDeudaRank(a.libreDeDeuda).localeCompare(debtStrategyLibreDeDeudaRank(b.libreDeDeuda)) || a.costeTotal - b.costeTotal)
+    .at(0).id;
+}
+
+function debtStrategyDecisionsToEscenario(strategyId) {
+  const decisions = debtStrategyDecisions(strategyId);
+  escenarioMotorSeq += decisions.length;
+  escenarioMotorDecisions = decisions.map((decision, index) => ({ ...decision, id: `escenario-motor-${escenarioMotorSeq - decisions.length + index + 1}` }));
+  escenarioMotorGuardrailValue = debtStrategyReserveValue;
+}
+
+function renderDeudaComparar() {
+  const grid = qs("deudaCompararGrid");
+  if (!grid) return;
+  const reserveField = qs("deudaCompararReserve");
+  if (debtStrategyReserveValue === null) debtStrategyReserveValue = debtStrategyReserveDefault();
+  if (reserveField && document.activeElement !== reserveField) reserveField.value = debtStrategyReserveValue ?? "";
+
+  const baseInput = escenarioMotorBaseInput();
+  const summaries = DEBT_STRATEGY_DEFINITIONS.map((def) => ({ id: def.id, def, ...debtStrategySummary(def.id, baseInput, debtStrategyReserveValue) }));
+  const recommendedId = debtStrategyRecommended(summaries);
+
+  grid.innerHTML = summaries
+    .map((entry) => {
+      const isRecommended = entry.id === recommendedId;
+      const isNoTouch = entry.total === 0;
+      const statusNote = isNoTouch
+        ? "Referencia: nada cambia."
+        : entry.viable
+        ? ""
+        : `${entry.aplicadas}/${entry.total} decisiones viables en este horizonte.`;
+      return `<article class="e19-card deuda-decidir-strategy-card${isRecommended ? " is-recommended" : ""}">
+        ${isRecommended ? '<span class="e19-badge e19-badge-success deuda-decidir-strategy-flag">Recomendada</span>' : ""}
+        <h3>${escapeHtml(entry.def.label)}</h3>
+        <p class="e19-kpi-note">${escapeHtml(entry.def.desc)}</p>
+        <div class="deuda-decidir-strategy-kpis">
+          <div><span>Libre de deuda</span><strong>${escapeHtml(escenarioMotorMonthLabel(entry.libreDeDeuda))}</strong></div>
+          <div><span>Coste total ejecutado</span><strong>${money(entry.costeTotal, true)}</strong></div>
+          <div><span>Caja mínima</span><strong>${money(entry.cajaMinima ?? 0, true)}</strong></div>
+        </div>
+        ${statusNote ? `<p class="e19-kpi-note is-warn">${escapeHtml(statusNote)}</p>` : ""}
+        <div class="deuda-decidir-strategy-actions">
+          <button type="button" class="e19-btn e19-btn-secondary" data-deuda-comparar-ruta="${escapeHtml(entry.id)}">Ver ruta</button>
+          ${isRecommended ? `<button type="button" class="e19-btn e19-btn-primary" data-deuda-comparar-aplicar="${escapeHtml(entry.id)}">Aplicar la recomendada</button>` : ""}
+        </div>
+      </article>`;
+    })
+    .join("");
+
+  const insight = qs("deudaCompararInsight");
+  const noTouch = summaries.find((entry) => entry.id === "no-tocar");
+  const recommended = summaries.find((entry) => entry.id === recommendedId);
+  if (insight) {
+    if (recommended && noTouch && recommended.id !== "no-tocar") {
+      const costeDelta = round2(noTouch.costeTotal - recommended.costeTotal);
+      insight.hidden = false;
+      insight.innerHTML = `<strong>${escapeHtml(recommended.def.label)} sale mejor que no tocar nada</strong>
+        <p>Libre de deuda con ${escapeHtml(recommended.def.label.toLowerCase())}: ${escapeHtml(escenarioMotorMonthLabel(recommended.libreDeDeuda))} (sin tocar nada: ${escapeHtml(escenarioMotorMonthLabel(noTouch.libreDeDeuda))})${costeDelta ? `, con ${money(Math.abs(costeDelta), true)} ${costeDelta >= 0 ? "menos" : "más"} de coste ejecutado` : ""}.</p>`;
+    } else {
+      insight.hidden = true;
+    }
+  }
+}
+
+function handleDeudaCompararReserveInput(event) {
+  const value = Number(event.target.value);
+  debtStrategyReserveValue = Number.isFinite(value) && value > 0 ? value : null;
+  renderDeudaComparar();
+}
+
+function handleDeudaCompararVerRuta(strategyId) {
+  deudaRutaSelectedStrategy = strategyId;
+  escenarioMotorNavigate("deuda-ruta");
+}
+
+function handleDeudaCompararAplicar(strategyId) {
+  debtStrategyDecisionsToEscenario(strategyId);
+  escenarioMotorNavigate("escenario-aplicar");
+}
+
+// Deuda viva = principal pendiente de los contratos que la ruta todavía no ha resuelto en firme
+// ("aplicada"). Como cada decisión es un pago total, es una función escalón exacta a partir de
+// mesResuelto — no una aproximación de calendario de amortización mes a mes.
+function buildDeudaVivaSeries(months, contracts, decisions, resultadosById) {
+  const payoffMonthByDebt = new Map();
+  decisions.forEach((decision) => {
+    const resultado = resultadosById.get(decision.id);
+    if (resultado?.resultado === "aplicada" && resultado.mesResuelto) {
+      payoffMonthByDebt.set(decision.params.deudaId, resultado.mesResuelto);
+    }
+  });
+  return months.map((month) => {
+    const total = contracts.reduce((sum, contract) => {
+      const payoffMonth = payoffMonthByDebt.get(contract.id);
+      const alreadySettled = payoffMonth && payoffMonth <= month.monthKey;
+      return alreadySettled ? sum : sum + Number(contract.currentPrincipal || 0);
+    }, 0);
+    return { monthKey: month.monthKey, deudaViva: round2(total) };
+  });
+}
+
+// El horizonte completo del motor (hasta 10 años) hace que la liquidez proyectada crezca muy por
+// encima del principal de deuda, que solo importa en los primeros años: en una escala compartida la
+// deuda queda aplastada en un hilo casi invisible. Se recorta la ventana a los últimos 6 meses tras
+// saldarse la última deuda (o 36 meses si nunca llega a saldarse del todo en este horizonte), igual
+// que el mockup solo muestra ~3 años en vez de los 10 completos.
+function deudaRutaChartWindow(deudaSeries, liquidezSeries, months) {
+  const lastAliveIndex = deudaSeries.reduce((last, row, index) => (row.deudaViva > 0 ? index : last), -1);
+  const end = lastAliveIndex === -1 ? Math.min(months.length, 36) : Math.min(months.length, lastAliveIndex + 7);
+  return { deudaSeries: deudaSeries.slice(0, end), liquidezSeries: liquidezSeries.slice(0, end), months: months.slice(0, end) };
+}
+
+function renderDeudaRutaChart(deudaSeries, liquidezSeries, months) {
+  const svg = qs("deudaRutaChart");
+  if (!svg || !deudaSeries.length) return;
+  const width = svg.clientWidth || 640;
+  const height = 200;
+  const pad = { left: 60, right: 16, top: 16, bottom: 26 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const values = [...deudaSeries.map((row) => row.deudaViva), ...liquidezSeries.map((row) => row.totalLiquidity)];
+  const minV = Math.min(...values, 0);
+  const maxV = Math.max(...values, 1);
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const n = deudaSeries.length;
+  const x = (i) => pad.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+  const y = (value) => pad.top + plotH - ((value - minV) / Math.max(1, maxV - minV)) * plotH;
+
+  const deudaLine = deudaSeries.map((row, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(2)} ${y(row.deudaViva).toFixed(2)}`).join(" ");
+  const deudaArea = `${deudaLine} L ${x(n - 1).toFixed(2)} ${(pad.top + plotH).toFixed(2)} L ${x(0).toFixed(2)} ${(pad.top + plotH).toFixed(2)} Z`;
+  const liquidezLine = liquidezSeries.map((row, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(2)} ${y(row.totalLiquidity).toFixed(2)}`).join(" ");
+
+  let markup = `<path class="chart-area-deuda" d="${deudaArea}" />`;
+  markup += `<path class="chart-line-deuda" d="${deudaLine}" />`;
+  markup += `<path class="chart-line-liquidez" d="${liquidezLine}" />`;
+  projectChartTickIndexes(months, width).forEach((idx) => {
+    markup += `<text class="chart-label" x="${(x(idx) - 14).toFixed(2)}" y="${height - 6}">${escapeHtml(months[idx]?.month || "")}</text>`;
+  });
+  svg.insertAdjacentHTML("beforeend", markup);
+}
+
+function renderDeudaRuta() {
+  if (debtStrategyReserveValue === null) debtStrategyReserveValue = debtStrategyReserveDefault();
+  const tabs = qs("deudaRutaTabs");
+  if (tabs) {
+    tabs.innerHTML = DEBT_STRATEGY_DEFINITIONS.map(
+      (def) => `<button type="button" class="deuda-decidir-tab${def.id === deudaRutaSelectedStrategy ? " is-active" : ""}" data-deuda-ruta-tab="${escapeHtml(def.id)}">${escapeHtml(def.label)}</button>`
+    ).join("");
+  }
+
+  const baseInput = escenarioMotorBaseInput();
+  const contracts = escenarioMotorDebtOptions();
+  const summary = debtStrategySummary(deudaRutaSelectedStrategy, baseInput, debtStrategyReserveValue);
+  const def = DEBT_STRATEGY_DEFINITIONS.find((item) => item.id === deudaRutaSelectedStrategy);
+  const resultadosById = new Map((summary.result?.resultados || []).map((item) => [item.id, item]));
+
+  const titleEl = qs("deudaRutaTitle");
+  if (titleEl) {
+    const esFecha = /^\d{4}-\d{2}/.test(String(summary.libreDeDeuda || ""));
+    titleEl.textContent = esFecha
+      ? `Sin deuda en ${escenarioMotorMonthLabel(summary.libreDeDeuda)}`
+      : `Libre de deuda: ${escenarioMotorMonthLabel(summary.libreDeDeuda)}`;
+  }
+  const subtitleEl = qs("deudaRutaSubtitle");
+  if (subtitleEl) {
+    subtitleEl.textContent = `${def?.label || deudaRutaSelectedStrategy}: ${summary.total} decisión(es), ${money(summary.costeTotal, true)} de coste ejecutado, caja mínima ${money(summary.cajaMinima ?? 0, true)}.`;
+  }
+
+  const deudaViva = buildDeudaVivaSeries(baseInput.months, contracts, summary.decisions, resultadosById);
+  const chartWindow = deudaRutaChartWindow(deudaViva, summary.result?.series || [], baseInput.months);
+  renderDeudaRutaChart(chartWindow.deudaSeries, chartWindow.liquidezSeries, chartWindow.months);
+
+  const timeline = qs("deudaRutaTimeline");
+  if (timeline) {
+    const debts = new Map(contracts.map((contract) => [contract.id, contract]));
+    const ordered = summary.decisions
+      .map((decision) => ({ decision, resultado: resultadosById.get(decision.id) }))
+      .sort((a, b) => String(a.resultado?.mesResuelto || "9999").localeCompare(String(b.resultado?.mesResuelto || "9999")));
+    timeline.innerHTML = ordered.length
+      ? ordered
+          .map(({ decision, resultado }) => {
+            const contract = debts.get(decision.params.deudaId);
+            const info = resultado ? escenarioMotorResultInfo(resultado.resultado) : { text: "Sin calcular", badge: "e19-badge-neutral" };
+            return `<li class="deuda-ruta-timeline-item">
+              <span class="deuda-ruta-timeline-month">${escapeHtml(escenarioMotorMonthLabel(resultado?.mesResuelto))}</span>
+              <div>
+                <strong>${escapeHtml(contract ? escenarioMotorDebtLabel(contract) : decision.params.deudaId)}</strong>
+                <p>${money(decision.params.importe, true)} · <span class="e19-badge ${info.badge}">${escapeHtml(info.text)}</span></p>
+              </div>
+            </li>`;
+          })
+          .join("")
+      : `<li class="deuda-ruta-timeline-item deuda-ruta-timeline-empty">Sin decisiones: la deuda sigue su calendario actual.</li>`;
+  }
+
+  const portfolio = qs("deudaRutaPortfolio");
+  if (portfolio) {
+    const maxPrincipal = Math.max(1, ...contracts.map((contract) => Number(contract.currentPrincipal) || 0));
+    portfolio.innerHTML = contracts
+      .slice()
+      .sort((a, b) => Number(b.currentPrincipal) - Number(a.currentPrincipal))
+      .map((contract) => `<div class="deuda-ruta-portfolio-row">
+          <span>${escapeHtml(escenarioMotorDebtLabel(contract))}</span>
+          <strong>${money(contract.currentPrincipal, true)}</strong>
+          <div class="deuda-ruta-portfolio-bar"><span style="width:${Math.round((Number(contract.currentPrincipal) / maxPrincipal) * 100)}%"></span></div>
+        </div>`)
+      .join("");
+  }
+
+  const checklist = qs("deudaRutaChecklist");
+  const applyButton = qs("deudaRutaApply");
+  const reserveConfigured = Number.isFinite(debtStrategyReserveValue);
+  const effectiveReserve = debtStrategyEffectiveReserve(debtStrategyReserveValue);
+  const reserveOk = (summary.cajaMinima ?? 0) >= effectiveReserve;
+  const checks = [
+    {
+      ok: reserveOk,
+      label: reserveOk
+        ? reserveConfigured
+          ? "Reserva mínima protegida durante toda la ruta"
+          : "No baja de 0 € en ningún mes (sin reserva mínima configurada)"
+        : reserveConfigured
+        ? "La ruta baja de la reserva mínima indicada"
+        : "La ruta deja la caja en negativo en algún mes",
+    },
+    { ok: summary.total === 0 ? null : summary.viable, label: summary.total === 0 ? "Sin decisiones que aplicar" : summary.viable ? "Todas las decisiones tienen mes viable" : `${summary.total - summary.aplicadas} decisión(es) sin mes viable en este horizonte` },
+  ];
+  if (checklist) {
+    checklist.innerHTML = checks
+      .map((check) => `<li class="deuda-ruta-check${check.ok === false ? " is-danger" : check.ok === null ? " is-neutral" : " is-ok"}">${escapeHtml(check.label)}</li>`)
+      .join("");
+  }
+  if (applyButton) applyButton.disabled = summary.total === 0 || !summary.viable;
+}
+
+function handleDeudaRutaTab(strategyId) {
+  deudaRutaSelectedStrategy = strategyId;
+  renderDeudaRuta();
+}
+
+function handleDeudaRutaApply() {
+  debtStrategyDecisionsToEscenario(deudaRutaSelectedStrategy);
+  escenarioMotorNavigate("escenario-aplicar");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Conciliación (E20-2, mockup 1g). No reimplementa nada: llama a las mismas funciones reales que
+// ya usa la pantalla heredada #reconciliation (refreshCanonicalLedger, E11bInbox.reconciliationTasks,
+// FinanceCanonicalE5.latestMonthOperation) y solo cambia la presentación — una lectura enfocada en
+// "qué falta para cerrar el mes" en vez del panel operativo completo (paridad histórica, auditoría
+// diaria, barrera de publicación...) que #reconciliation sigue ofreciendo intacto para quien lo
+// necesite.
+// ---------------------------------------------------------------------------------------------
+function conciliarMonthHistory(monthRows) {
+  return monthRows.map((row) => {
+    const latest = window.FinanceCanonicalE5?.latestMonthOperation({ monthClosures }, row.monthKey);
+    const reopenCount = monthClosures.filter((op) => op.monthKey === row.monthKey && op.operation === "month-reopen").length;
+    return { monthKey: row.monthKey, closed: latest?.status === "closed", reopenCount };
+  });
+}
+
+function renderConciliar() {
+  if (!window.FinanceCanonicalLedger) return;
+  const snapshot = refreshCanonicalLedger("conciliar-view");
+  if (!snapshot) return;
+  const quality = snapshot.quality || {};
+  const months = snapshot.reconciliation?.months || [];
+  const lines = snapshot.reconciliation?.lines || [];
+  const entries = snapshot.entries || [];
+  const checks = snapshot.balanceChecks || [];
+  const differenceTotal = ledgerDifferenceTotal(snapshot);
+
+  const unclassified = entries.filter((entry) => !entry.duplicateOf && entry.mapping?.status !== "classified");
+  const differences = lines.filter((line) => Math.abs(Number(line.delta || 0)) > 0.02);
+  const balanceGaps = checks.flatMap((check) => (check.gaps || []).map((gap, index) => ({ ...gap, id: `${check.accountId}-${index}`, accountId: check.accountId })));
+  const tasks = E11bInbox ? E11bInbox.reconciliationTasks({ unclassified, differences, balanceGaps }) : [];
+
+  const currentMonthKey = openMonthCutoffKey();
+  const currentClosure = isClosedMonthKey(currentMonthKey) ? window.FinanceCanonicalE5?.latestMonthOperation({ monthClosures }, currentMonthKey) : null;
+  const isClosed = Boolean(currentClosure);
+
+  const titleEl = qs("conciliarTitle");
+  if (titleEl) {
+    titleEl.textContent = isClosed
+      ? `${ledgerMonthLabel(currentMonthKey)} cerrado`
+      : tasks.length
+      ? `Faltan ${tasks.length} cosa(s) para cerrar ${ledgerMonthLabel(currentMonthKey)}`
+      : `Nada pendiente para cerrar ${ledgerMonthLabel(currentMonthKey)}`;
+  }
+  const subtitleEl = qs("conciliarSubtitle");
+  if (subtitleEl) subtitleEl.textContent = `Diferencia total banco vs. real: ${money(differenceTotal, true)}. Abrir una tarea no corrige nada por sí solo.`;
+
+  const kpis = qs("conciliarKpis");
+  if (kpis) {
+    const gapCount = Number(quality.balanceGapCount || 0);
+    kpis.innerHTML = [
+      ["Movimientos del banco", String(Number(quality.transactionCount || 0)), ""],
+      ["Clasificados", String(Number(quality.classifiedCount || 0)), ""],
+      ["Diferencia banco vs. real", money(differenceTotal, true), differenceTotal > 0.02 ? " is-warn" : ""],
+      ["Continuidad de saldos", gapCount ? `${gapCount} salto(s)` : "Correcta", gapCount ? " is-warn" : ""],
+    ]
+      .map(([label, value, tone]) => `<div class="e19-kpi${tone}"><span class="e19-kpi-label">${escapeHtml(label)}</span><span class="e19-kpi-value">${escapeHtml(value)}</span></div>`)
+      .join("") + `<div class="e19-kpi${isClosed ? "" : " is-warn"}"><span class="e19-kpi-label">Estado</span><span class="e19-kpi-value">${isClosed ? "Cerrado" : "Abierto"}</span></div>`;
+  }
+
+  const taskList = qs("conciliarTasks");
+  if (taskList) {
+    taskList.innerHTML = tasks.length
+      ? tasks
+          .slice(0, 12)
+          .map(
+            (task, index) => `<li class="conciliar-task-item">
+              <span class="conciliar-task-index">${index + 1}</span>
+              <div>
+                <strong>${escapeHtml(task.label)}</strong>
+                <p>${task.cause === "unclassified" ? "Movimiento sin partida" : task.cause === "balance-gap" ? "Salto en la continuidad del saldo" : "Banco y real no coinciden"}. Abrir no modifica nada.</p>
+              </div>
+              <button type="button" class="e19-btn e19-btn-secondary" data-conciliar-task-target="${escapeHtml(task.target)}">${task.action === "classify" ? "Clasificar" : task.action === "adjust-balance" ? "Revisar saldo" : "Corregir real"}</button>
+            </li>`
+          )
+          .join("")
+      : `<li class="conciliar-task-item conciliar-task-empty">Sin tareas pendientes: clasificación, saldos e importes reales están conciliados.</li>`;
+  }
+
+  const checklist = qs("conciliarChecklist");
+  if (checklist) {
+    const checkItems = [
+      { ok: unclassified.length === 0, label: unclassified.length === 0 ? "Todos los movimientos están clasificados" : `${unclassified.length} movimiento(s) sin clasificar` },
+      { ok: Number(quality.balanceGapCount || 0) === 0, label: Number(quality.balanceGapCount || 0) === 0 ? "Continuidad de saldos correcta" : `${quality.balanceGapCount} salto(s) de saldo` },
+      { ok: !isClosed, label: isClosed ? `Ya cerrado el ${escenarioMotorMonthLabel(currentMonthKey)}` : "Los reales quedarán congelados en una versión recuperable" },
+    ];
+    checklist.innerHTML = checkItems.map((check) => `<li class="deuda-ruta-check${check.ok ? " is-ok" : " is-danger"}">${escapeHtml(check.label)}</li>`).join("");
+  }
+
+  const history = qs("conciliarHistory");
+  if (history) {
+    const previousMonths = months.filter((row) => row.monthKey !== currentMonthKey).slice(-3).reverse();
+    const rows = conciliarMonthHistory(previousMonths);
+    history.innerHTML = rows.length
+      ? rows
+          .map(
+            (row) => `<div class="conciliar-history-row"><span>${escapeHtml(ledgerMonthLabel(row.monthKey))}</span><strong class="${row.closed ? "is-ok" : "is-warn"}">${row.closed ? `Cerrado${row.reopenCount ? ` · reabierto ${row.reopenCount} vez${row.reopenCount > 1 ? "es" : ""}` : ""}` : "Abierto"}</strong></div>`
+          )
+          .join("")
+      : `<p class="e19-kpi-note">Sin meses anteriores con extracto importado.</p>`;
+  }
+
+  const closeButton = qs("conciliarClose");
+  if (closeButton) {
+    closeButton.disabled = isClosed;
+    closeButton.textContent = isClosed ? "Mes cerrado" : "Cerrar mes";
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Asesor ejecutivo (E20-2, mockup 1d). "La decisión abierta" = la oferta de deuda registrada más
+// urgente en E14b (Plan de deuda) sin decisión aplicada todavía. No existe un motor de
+// recomendación genérico capaz de fabricar una decisión con importe y vencimiento reales de la
+// nada — a petición del usuario, se construye sobre las ofertas reales que el propio usuario
+// registra en #debt-roadmap en vez de inventar una. Sin ninguna oferta abierta, la pantalla lo
+// dice explícitamente en vez de simular una decisión que no existe.
+// ---------------------------------------------------------------------------------------------
+function asesorDecisionOpenOffers() {
+  const workspace = e14bWorkspace();
+  return workspace.offers
+    .filter((offer) => offer.status !== "rejected" && !debtLiquidations.some((item) => item.targetId === offer.contractId))
+    .slice()
+    .sort((a, b) => String(a.expiresAt || "9999-99").localeCompare(String(b.expiresAt || "9999-99")));
+}
+
+// Cobertura estimada con los saldos reales de cada cuenta (accountBalancesFromState) — no un
+// reparto ya decidido: solo muestra de dónde saldría el dinero si se pagara hoy con lo que hay.
+function asesorDecisionFundingHtml(amount) {
+  const balances = accountBalancesFromState();
+  const sources = [
+    { label: "Mediolanum", available: balances.mediolanum },
+    { label: "CaixaBank", available: balances.caixa },
+  ].filter((source) => source.available > 0);
+  let remaining = amount;
+  const rows = sources.map((source) => {
+    const used = Math.max(0, Math.min(remaining, source.available));
+    remaining = round2(remaining - used);
+    return { ...source, used };
+  });
+  if (remaining > 0.01) rows.push({ label: "Sin cobertura con los saldos actuales", used: remaining, short: true });
+  const total = Math.max(1, amount);
+  return rows
+    .filter((row) => row.used > 0)
+    .map(
+      (row) => `<div class="asesor-decision-funding-row${row.short ? " is-danger" : ""}">
+        <span>${escapeHtml(row.label)}</span>
+        <strong>${money(row.used, true)}</strong>
+        <div class="asesor-decision-funding-bar"><span style="width:${Math.round((row.used / total) * 100)}%"></span></div>
+      </div>`
+    )
+    .join("");
+}
+
+function renderAsesorDecision() {
+  const offers = asesorDecisionOpenOffers();
+  const emptyEl = qs("asesorDecisionEmpty");
+  const contentEl = qs("asesorDecisionContent");
+  if (!offers.length || !E14DebtOperations) {
+    if (emptyEl) emptyEl.hidden = false;
+    if (contentEl) contentEl.hidden = true;
+    return;
+  }
+  if (emptyEl) emptyEl.hidden = true;
+  if (contentEl) contentEl.hidden = false;
+
+  const offer = offers[0];
+  const contract = debtTargetById(offer.contractId, { includePlanned: true });
+  const forecast = e14bForecast();
+  const strategy = e14bStrategyForOffer(offer);
+  const simulation = forecast?.valid && strategy ? E14DebtOperations.simulateStrategy(strategy, forecast) : null;
+  const reserve = agentCaixaFloor();
+
+  const deadline = qs("asesorDecisionDeadline");
+  if (deadline) deadline.textContent = offer.expiresAt ? `Decisión abierta · vence ${escenarioMotorMonthLabel(offer.expiresAt)}` : "Decisión abierta · sin vencimiento indicado";
+  const titleEl = qs("asesorDecisionTitle");
+  if (titleEl) titleEl.textContent = `Pagar la oferta de ${offer.counterpart || "sin contraparte"}${contract ? ` · ${contract.entity}${contract.type ? ` ${contract.type}` : ""}` : ""}`;
+  const amountEl = qs("asesorDecisionAmount");
+  if (amountEl) amountEl.textContent = money(offer.amount, true);
+
+  const statsEl = qs("asesorDecisionStats");
+  if (statsEl) {
+    statsEl.innerHTML = [
+      ["Ahorras", money(offer.discount, true)],
+      ["Cuota liberada", `${money(contract?.payment ?? 0, true)}/mes`],
+      ["Caja mínima tras pagar", simulation ? money(simulation.minimumLiquidity, true) : "Sin forecast"],
+    ]
+      .map(([label, value]) => `<div class="asesor-decision-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+      .join("");
+  }
+
+  const fundingEl = qs("asesorDecisionFunding");
+  if (fundingEl) fundingEl.innerHTML = asesorDecisionFundingHtml(offer.amount);
+
+  const applyLink = qs("asesorDecisionApply");
+  if (applyLink) {
+    applyLink.onclick = () => {
+      e14bWorkspace().selectedOfferId = offer.id;
+      queueRemoteSave();
+    };
+  }
+
+  const limitsEl = qs("asesorDecisionLimits");
+  if (limitsEl) {
+    const p2Input = window.FinanceP2Bridge?.e16Input?.() || {};
+    const maxDebtRatio = Number(p2Input.riskBudget?.maximumDebtRatio || 0);
+    const debtRatio = Number(p2Input.debtRatio || 0);
+    const next12 = lastSimulation.slice(0, Math.min(12, lastSimulation.length));
+    const monthlyOutflow = next12.length ? next12.reduce((sum, row) => sum + row.coreSpend + row.car + row.refi, 0) / next12.length : 0;
+    const bufferMonths = safeCoverageMonths(state.initialCash, monthlyOutflow);
+    const bufferTarget = Number(state.emergencyBufferMonths || 0);
+    const cajaOk = simulation ? simulation.minimumLiquidity >= reserve : null;
+    const items = [
+      { ok: cajaOk, label: `Reserva CaixaBank ${money(reserve, true)} mín.${simulation ? ` · queda en ${money(simulation.minimumLiquidity, true)}` : ""}` },
+      { ok: bufferMonths === null ? null : bufferMonths >= bufferTarget, label: `Colchón ${bufferTarget} mes(es) obj. · ahora ${coverageMonthsText(bufferMonths)}` },
+      { ok: maxDebtRatio ? debtRatio <= maxDebtRatio : null, label: maxDebtRatio ? `Deuda/ingresos ${maxDebtRatio}% máx. · ahora ${debtRatio}%` : `Deuda/ingresos ahora ${debtRatio}% (sin límite configurado en Presupuesto de riesgo)` },
+    ];
+    limitsEl.innerHTML = items.map((item) => `<li class="deuda-ruta-check${item.ok === false ? " is-danger" : item.ok ? " is-ok" : ""}">${escapeHtml(item.label)}</li>`).join("");
+  }
+
+  const queueEl = qs("asesorDecisionQueue");
+  if (queueEl) {
+    const rest = offers.slice(1);
+    queueEl.innerHTML = rest.length
+      ? rest
+          .map(
+            (item) => `<div class="conciliar-history-row"><span>${escapeHtml(item.counterpart || "Sin contraparte")}</span><strong>${money(item.amount, true)}${item.expiresAt ? ` · vence ${escapeHtml(escenarioMotorMonthLabel(item.expiresAt))}` : ""}</strong></div>`
+          )
+          .join("")
+      : `<p class="e19-kpi-note">Sin más ofertas abiertas ahora mismo.</p>`;
+  }
+
+  const dataEl = qs("asesorDecisionData");
+  if (dataEl) {
+    const snapshot = window.FinanceCanonicalLedger ? refreshCanonicalLedger("asesor-decision-view") : null;
+    const coverage = snapshot?.quality?.coverage;
+    const items = [
+      "Saldos: hoy, cuenta corriente + ahorro",
+      Number.isFinite(coverage) ? `Conciliación: ${coverage}% de movimientos clasificados` : "Conciliación: sin datos de extracto",
+      `Forecast: ${forecast?.valid ? "disponible" : "no disponible todavía"}`,
+    ];
+    dataEl.innerHTML = items.map((text) => `<li class="deuda-ruta-check">${escapeHtml(text)}</li>`).join("");
+  }
+}
+
 function renderActiveSection(viewId = viewFromHash()) {
   if (!lastSimulation.length) return;
   switch (viewId) {
@@ -18565,6 +19162,18 @@ function renderActiveSection(viewId = viewFromHash()) {
       break;
     case "escenario-guardados":
       renderEscenarioGuardados();
+      break;
+    case "deuda-comparar":
+      renderDeudaComparar();
+      break;
+    case "deuda-ruta":
+      renderDeudaRuta();
+      break;
+    case "conciliar":
+      renderConciliar();
+      break;
+    case "asesor-decision":
+      renderAsesorDecision();
       break;
     case "debt-roadmap":
       renderE14bPanel();
@@ -19068,6 +19677,27 @@ async function init() {
     if (loadButton) { handleEscenarioGuardadosLoad(loadButton.dataset.escenarioGuardadoLoad); return; }
     const deleteButton = event.target.closest("[data-escenario-guardado-delete]");
     if (deleteButton) handleEscenarioGuardadosDelete(deleteButton.dataset.escenarioGuardadoDelete);
+  });
+  qs("deudaCompararReserve")?.addEventListener("input", handleDeudaCompararReserveInput);
+  qs("deudaCompararGrid")?.addEventListener("click", (event) => {
+    const rutaButton = event.target.closest("[data-deuda-comparar-ruta]");
+    if (rutaButton) { handleDeudaCompararVerRuta(rutaButton.dataset.deudaCompararRuta); return; }
+    const aplicarButton = event.target.closest("[data-deuda-comparar-aplicar]");
+    if (aplicarButton) handleDeudaCompararAplicar(aplicarButton.dataset.deudaCompararAplicar);
+  });
+  qs("deudaRutaTabs")?.addEventListener("click", (event) => {
+    const tabButton = event.target.closest("[data-deuda-ruta-tab]");
+    if (tabButton) handleDeudaRutaTab(tabButton.dataset.deudaRutaTab);
+  });
+  qs("deudaRutaApply")?.addEventListener("click", handleDeudaRutaApply);
+  qs("conciliarDownload")?.addEventListener("click", downloadCanonicalLedger);
+  qs("conciliarClose")?.addEventListener("click", closeCurrentMonthTransaction);
+  qs("conciliarTasks")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-conciliar-task-target]");
+    if (!button) return;
+    const target = button.dataset.conciliarTaskTarget;
+    history.pushState(null, "", `#${target}`);
+    setActiveView(target, { focus: true });
   });
   qs("debt-liquidation-plan")?.addEventListener("click", (event) => {
     const targetButton = event.target.closest("[data-debt-plan-target]");

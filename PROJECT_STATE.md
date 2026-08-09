@@ -2,6 +2,92 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Cierre de sesión — E20-2 (continuación): asesor ejecutivo (1d)
+
+Cuarta pantalla del tramo actual: `#asesor-decision`. A diferencia de 1b/1c/1g, esta no
+era un reskin sobre lógica ya existente — el mockup asume un motor de recomendación que
+no existe. Se planteó explícitamente como decisión de producto al usuario (no una
+elección técnica silenciosa): construir la pantalla sobre ofertas reales de E14b (la
+oferta de deuda más urgente que el propio usuario registra en `#debt-roadmap`, con
+vencimiento e importe reales), reutilizar el motor de recomendaciones genérico de E16
+(siempre tiene contenido pero es más superficial, sin importe/vencimiento concretos), o
+aplazar la pantalla. El usuario eligió la primera opción.
+
+Sin ninguna oferta abierta registrada — el caso más común en un dataset nuevo — la
+pantalla muestra un estado vacío explícito en vez de fabricar una decisión. Con una
+oferta real: ahorras/cuota liberada/caja mínima salen de
+`E14DebtOperations.simulateStrategy()` (la misma simulación que ya usa el panel E14b);
+la cobertura "de dónde puede salir el dinero" son los saldos reales de cada cuenta,
+etiquetados como estimación, no como reparto ya decidido (el mockup insinúa una
+asignación fija que no tiene dato real detrás); los límites (reserva, colchón,
+deuda/ingresos) reutilizan cálculos ya existentes en otras pantallas — verificado que
+"colchón: 2.0" coincide exactamente con el mismo KPI del panel Hoy. "Revisar y aplicar"
+preselecciona la oferta y navega al flujo real de aplicación en `#debt-roadmap` en vez
+de reconstruirlo. Detalle completo en `docs/E19_SISTEMA_DISENO.md` §8.
+
+Verificado con Playwright de extremo a extremo: estado vacío sin ofertas, registro de
+una oferta real en `#debt-roadmap`, contenido completo y correcto en `#asesor-decision`,
+navegación de vuelta con la oferta preseleccionada. Un bug pequeño encontrado y
+corregido (falta de espacio en el título por un `.trim()` aplicado al segmento entero en
+vez de solo a la parte opcional).
+
+403 pruebas (403 pass), `npm run verify` en verde.
+
+## Cierre de sesión — E20-2 (continuación): conciliación (1g)
+
+Tercera pantalla del tramo actual: `#conciliar`, puro reskin sobre la conciliación real ya
+verificada (E4/A1-1, E11b) — llama a las mismas funciones que la pantalla heredada
+`#reconciliation` (`refreshCanonicalLedger`, `E11bInbox.reconciliationTasks`,
+`FinanceCanonicalE5.latestMonthOperation`) sin reimplementar ningún cálculo; solo cambia
+la presentación a "qué falta para cerrar el mes" en vez del panel operativo completo, que
+sigue intacto en `#reconciliation`. Detalle en `docs/E19_SISTEMA_DISENO.md` §7.
+
+Verificado con Playwright contra la app real: KPIs, lista de tareas, checklist de cierre e
+histórico de meses anteriores renderizan correctamente; contrastado contra `#reconciliation`
+en el mismo dataset para confirmar que la ausencia de datos (0 movimientos bancarios
+importados en el dataset local de pruebas) es igual en ambas pantallas, no un fallo nuevo.
+
+403 pruebas (403 pass), `npm run verify` en verde.
+
+## Cierre de sesión — E20-2: comparador de estrategias de deuda + plan de deuda · ruta (1b/1c)
+
+A petición expresa del usuario, arranca el resto del catálogo de mockups pendiente
+(plan de deuda, asesor ejecutivo, conciliación, cuadro de mandos con impacto) más los
+tipos de decisión que faltan en `#escenario-simular`. Primer tramo: `#deuda-comparar` y
+`#deuda-ruta` (mockups 1b/1c), construidas sobre el mismo motor (`resolveEscenario`) que
+Escenario, no sobre el pipeline heredado de `debt-liquidation-plan`. Detalle completo,
+incluidas las simplificaciones deliberadas frente al mockup (tres estrategias reales, no
+cuatro; ver por qué "reunificación" no se fabrica), en `docs/E19_SISTEMA_DISENO.md` §6.
+
+Dos bugs reales encontrados y corregidos durante la verificación con Playwright (no solo
+capturas — clics e interacción real):
+- **Layout**: `.visual-controls` es un `display:grid` genérico de 4 columnas (pensado
+  para paneles de filtros en otras pantallas) que, aplicado a un grupo de tabs + un
+  enlace, forzaba los tabs a una columna de ~130px y los hacía desbordar tapando el
+  enlace de al lado. Corregido con un `display:flex` propio, con ámbito a
+  `.e19-deuda-decidir .section-title .visual-controls`, igual que el fix de `min-width`
+  de E20-1 — sin tocar la regla global que sí es correcta donde ya se usa.
+- **Cálculo**: sin una reserva mínima configurada, el motor no valida nada en modo
+  óptimo — todas las decisiones caían en el primer mes del horizonte sin importar cuánto
+  quedara la caja en negativo (primera prueba: caja mínima de -2.460 €, sin sentido
+  como comparación de estrategias). Corregido con un suelo de 0 € por defecto cuando no
+  hay reserva configurada (nunca "sin comprobar nada" en silencio), y con un ranking
+  explícito para "recomendada" en vez de comparar como texto plano fechas reales junto a
+  etiquetas como "sin fecha estimable" (que por alfabeto ordenaban antes que cualquier
+  fecha real, aunque no signifique "antes" en absoluto).
+- **Legibilidad del gráfico**: con el horizonte completo del motor (hasta 10 años) la
+  liquidez proyectada crece muy por encima del principal de deuda y lo aplana en un hilo
+  invisible en una escala compartida; se recorta la ventana a los ~6 meses tras saldarse
+  la última deuda.
+
+403 pruebas (403 pass), `npm run verify` en verde, flujo comparar → ver ruta → cambiar de
+pestaña → aplicar ruta → confirmar con motivo → guardado verificado de extremo a extremo
+con Playwright contra la app real.
+
+La rama de trabajo `claude/repo-analysis-3dupjd` se reinició sobre el `main` ya fusionado
+(PR #2 + esta nueva entrega), con el mismo nombre — la anterior PR quedó cerrada por
+fusión, no se reutiliza. Trabajo pendiente de publicar mediante un PR nuevo.
+
 ## Publicación — PR #2 fusionado a `main`
 
 A petición expresa del usuario ("confirmo fusión, publica todo lo que se pueda publicar"),

@@ -84,12 +84,12 @@ a la que corresponden y su estado de migración a día de hoy.
 | # | Título del mockup | Pantalla real | Estado |
 |---|---|---|---|
 | 1a | Hoy · navegación reducida a cuatro verbos, una lectura y tres decisiones | `#home` | ✅ Migrada (E19-2) |
-| 1b | Plan de deuda · ruta como línea de tiempo (dataviz A) | `#debt-roadmap` | ⏳ Pendiente |
-| 1c | Plan de deuda · comparador de estrategias (dataviz B) | `#debt-roadmap` / `#debt-liquidation-plan` | ⏳ Pendiente |
-| 1d | Asesor ejecutivo · una decisión abierta a la vez | `#executive-advisor` | ⏳ Pendiente |
+| 1b | Plan de deuda · ruta como línea de tiempo (dataviz A) | `#deuda-ruta` | ✅ Migrada (E20-2) |
+| 1c | Plan de deuda · comparador de estrategias (dataviz B) | `#deuda-comparar` | ✅ Migrada (E20-2, parcial — ver nota) |
+| 1d | Asesor ejecutivo · una decisión abierta a la vez | `#asesor-decision` | ✅ Migrada (E20-2, parcial — ver nota) |
 | 1e | Simulación nueva vida · simular → comparar → aplicar en una sola vista | `#escenario-simular` | ✅ Migrada (E20-1) |
 | 1f | Actualizar mis datos · hub ordenado por lo que tienes delante | `#update-hub` | ✅ Migrada (E19-3) |
-| 1g | Conciliación · las diferencias como tareas, no como tablas | `#reconciliation` | ⏳ Pendiente |
+| 1g | Conciliación · las diferencias como tareas, no como tablas | `#conciliar` | ✅ Migrada (E20-2) |
 
 ### Turno 2 — Entrada y actualización de datos · previsión · aplicación de escenarios
 
@@ -137,3 +137,102 @@ Alcance de tipos de decisión: igual que en E20-1 día 1, solo `amortizacion` es
 conectada a estas tres pantallas. El resto de tipos que ya soporta el motor
 (`canonical-scenario-engine.js`: refinanciación, reunificación, compra, imprevisto…) se
 añadirán a los mismos tres controles en próximas fases, sin tener que rediseñar el flujo.
+
+## 6. Deuda: comparar estrategias → ruta (1b/1c)
+
+Los mockups 1b y 1c definen dos vistas del mismo plan de deuda: una comparación de
+estrategias con nombre (1c) y el detalle cronológico de la elegida (1b). Implementadas en
+E20-2 como `#deuda-comparar` y `#deuda-ruta`, construidas sobre el mismo motor que
+Escenario (`resolveEscenario`) en vez de sobre el pipeline heredado de
+`debt-liquidation-plan` (`DEBT_LIQUIDATION_ASSUMPTIONS`, entidades hardcodeadas): cada
+estrategia es una lista de decisiones `amortizacion` (pago total, `planificacion.modo:
+"optimo"`) sobre la cartera real (`canonicalDebtContractRows`), ordenada según el
+criterio de la estrategia, y resuelta de verdad por el motor — nunca un número inventado.
+
+**Solo tres estrategias, no cuatro.** El mockup 1c muestra "Quita + avalancha", "Bola de
+nieve", "Reunificación" y "No tocar nada". Aquí solo hay **avalancha** (ordena por TAE
+descendente), **bola de nieve** (ordena por saldo ascendente) y **no tocar nada** (sin
+decisiones, referencia). "Reunificación" como estrategia hipotética exigiría inventar
+unas condiciones de préstamo (TAE, plazo) que no existen todavía como oferta real en los
+datos — documentado en la propia pantalla en vez de fabricar una cifra. El día que exista
+una oferta de reunificación real registrada (como ya permite el flujo de ofertas de
+`#debt-roadmap`/E14b), puede añadirse como estrategia comparable de verdad.
+
+**Recomendada** = la estrategia viable (todas sus decisiones resueltas como "aplicada")
+con la fecha de libre de deuda más temprana; en empate, la de menor coste total
+ejecutado. `escenarioMotorLibreDeDeuda` no siempre devuelve una fecha real — puede
+devolver "sin deuda pendiente", "sin fecha estimable" (queda un registro sin cuota activa,
+p. ej. una reunificación histórica) o "fuera de horizonte"; comparar esos textos como
+cadenas ordenaría mal, así que se traduce cada caso a un rango explícito antes de
+comparar en vez de fiarse de una coincidencia alfabética.
+
+**"Deuda a cero" ambas pantallas la reutilizan.** "Ver ruta"/"Aplicar la recomendada"
+cargan las decisiones de la estrategia elegida directamente en
+`escenarioMotorDecisions` y navegan a `#escenario-aplicar` — el mismo diff línea a línea
+con motivo obligatorio de E20-1, sin reconstruir esa lógica. El gráfico de `#deuda-ruta`
+("deuda viva vs. liquidez") recorta la ventana temporal a los ~6 meses tras saldarse la
+última deuda (o 36 meses si no llega a saldarse en este horizonte): con el horizonte
+completo del motor (hasta 10 años) la liquidez crece muy por encima del principal de
+deuda y la aplana en un hilo invisible en una escala compartida.
+
+**Reserva mínima con suelo por defecto.** El motor solo busca mes viable si se declara un
+guardarraíl positivo; sin ninguno, "modo óptimo" no comprueba nada y todo cae en el
+primer mes del horizonte sin importar cuánto quede la caja en negativo. Si el usuario no
+ha configurado una reserva (aquí, o en Presupuesto de riesgo, `state.operatingReserve`),
+se usa un suelo de 0 € por defecto — nunca "sin comprobar nada" en silencio — y el
+checklist "antes de aplicar" deja explícito si la cifra es una reserva real configurada o
+el suelo por defecto.
+
+## 7. Conciliación (1g)
+
+El mockup 1g reduce la conciliación a "qué falta para cerrar el mes": un título con el
+número de tareas, KPIs de cobertura, una lista de tareas por causa ordenadas por impacto,
+un checklist de qué implica cerrar y el histórico de meses anteriores. Implementado como
+`#conciliar` (E20-2), es **puro reskin**: no reimplementa ni un cálculo — llama
+literalmente a las mismas funciones que ya usaba la pantalla heredada `#reconciliation`
+(`refreshCanonicalLedger`, `E11bInbox.reconciliationTasks`,
+`FinanceCanonicalE5.latestMonthOperation`, `closeCurrentMonthTransaction`,
+`downloadCanonicalLedger`) y solo cambia qué se muestra y cómo. `#reconciliation` sigue
+intacta, sin tocar, para quien necesite el panel operativo completo (paridad histórica,
+auditoría diaria, barrera de publicación) que el mockup no pide y `#conciliar`
+deliberadamente no reproduce.
+
+"Meses anteriores" deriva su estado (cerrado / reabierto N veces) de `monthClosures`, el
+registro real de operaciones de cierre — no hay estados fabricados como "revisar" o
+similar que no tengan un operación real detrás.
+
+## 8. Asesor ejecutivo (1d)
+
+El mockup 1d asume que siempre hay "una decisión abierta" con importe y vencimiento
+reales esperando confirmación. Ese concepto no existe hoy como motor de recomendación
+genérico — nada en la app calcula "la decisión más urgente" de la nada. A petición
+expresa del usuario (tras planteárselo como decisión de producto explícita, no
+técnica), `#asesor-decision` (E20-2) se construye sobre **ofertas reales de E14b**: la
+oferta de deuda que el propio usuario registra en `#debt-roadmap` (con contraparte,
+importe, vencimiento y modalidad reales), filtrando las que ya tienen una decisión
+aplicada (`debtLiquidations`) y ordenando por vencimiento más próximo.
+
+**Sin ofertas abiertas, la pantalla lo dice.** No hay estado "de relleno": si
+`e14bWorkspace().offers` no tiene ninguna oferta pendiente, se muestra un estado vacío
+explícito con enlace a "Registrar oferta" en vez de simular una decisión inexistente.
+Es el comportamiento esperado la mayor parte del tiempo con datos nuevos, documentado
+así en vez de disimulado.
+
+Cifras reales, no fabricadas:
+- **Ahorras / cuota liberada / caja mínima tras pagar**: `offer.discount` (principal −
+  importe de la oferta) y `E14DebtOperations.simulateStrategy()` sobre el forecast
+  real — la misma simulación que ya usa el panel E14b para comparar.
+- **De dónde puede salir el dinero**: cobertura estimada con los saldos reales de cada
+  cuenta (`accountBalancesFromState`), explícitamente etiquetada como "cobertura
+  estimada", no como un reparto ya decidido — el mockup insinúa una asignación fija que
+  no existe como dato real en ningún sitio.
+- **Límites que no se rompen**: reserva (`agentCaixaFloor`), colchón en meses
+  (mismo cálculo que el KPI "Meses colchón" de Hoy — contrastado en verificación:
+  coinciden exactamente) y deuda/ingresos (`FinanceP2Bridge.e16Input().riskBudget`).
+- **Otras ofertas en espera**: el resto de ofertas abiertas de E14b, si existen —
+  ningún estado "Preparar/En espera" por tipo de acción, que no tiene datos reales
+  detrás en este flujo.
+
+"Revisar y aplicar en Plan de deuda" preselecciona la oferta y navega a `#debt-roadmap`
+— reutiliza el flujo real de aplicación (motivo, documentos mínimos, reserva protegida)
+en vez de reconstruirlo aquí.
