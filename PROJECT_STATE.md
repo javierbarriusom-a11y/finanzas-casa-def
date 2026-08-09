@@ -2,6 +2,19 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Decisión de publicación: un único sitio en desarrollo
+
+A petición del usuario se creó una copia fija del repositorio en
+`javierbarriusom-a11y/contabilidadcasa`
+(`https://javierbarriusom-a11y.github.io/contabilidadcasa/`), foto de este
+mismo estado (E19 completo + E20-0 días 1-4). El usuario confirmó
+explícitamente que esa copia **no se toca más**: todo el trabajo futuro sigue
+exclusivamente en este repositorio y su sitio actual
+(`https://javierbarriusom-a11y.github.io/finanzas-casa-def/`), que queda
+"como está". Documentado también en `CLAUDE.md` para que esta regla se
+respete automáticamente sin que el usuario tenga que repetirla en cada
+sesión.
+
 ## Cierre de sesión — E20-0, día 4: tipos de decisión fuera del alcance original de F1
 
 - A petición expresa del usuario, se implementan los tipos de decisión que no tocan deuda y
