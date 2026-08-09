@@ -2,6 +2,45 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Cierre de sesión — E20-2: comparador de estrategias de deuda + plan de deuda · ruta (1b/1c)
+
+A petición expresa del usuario, arranca el resto del catálogo de mockups pendiente
+(plan de deuda, asesor ejecutivo, conciliación, cuadro de mandos con impacto) más los
+tipos de decisión que faltan en `#escenario-simular`. Primer tramo: `#deuda-comparar` y
+`#deuda-ruta` (mockups 1b/1c), construidas sobre el mismo motor (`resolveEscenario`) que
+Escenario, no sobre el pipeline heredado de `debt-liquidation-plan`. Detalle completo,
+incluidas las simplificaciones deliberadas frente al mockup (tres estrategias reales, no
+cuatro; ver por qué "reunificación" no se fabrica), en `docs/E19_SISTEMA_DISENO.md` §6.
+
+Dos bugs reales encontrados y corregidos durante la verificación con Playwright (no solo
+capturas — clics e interacción real):
+- **Layout**: `.visual-controls` es un `display:grid` genérico de 4 columnas (pensado
+  para paneles de filtros en otras pantallas) que, aplicado a un grupo de tabs + un
+  enlace, forzaba los tabs a una columna de ~130px y los hacía desbordar tapando el
+  enlace de al lado. Corregido con un `display:flex` propio, con ámbito a
+  `.e19-deuda-decidir .section-title .visual-controls`, igual que el fix de `min-width`
+  de E20-1 — sin tocar la regla global que sí es correcta donde ya se usa.
+- **Cálculo**: sin una reserva mínima configurada, el motor no valida nada en modo
+  óptimo — todas las decisiones caían en el primer mes del horizonte sin importar cuánto
+  quedara la caja en negativo (primera prueba: caja mínima de -2.460 €, sin sentido
+  como comparación de estrategias). Corregido con un suelo de 0 € por defecto cuando no
+  hay reserva configurada (nunca "sin comprobar nada" en silencio), y con un ranking
+  explícito para "recomendada" en vez de comparar como texto plano fechas reales junto a
+  etiquetas como "sin fecha estimable" (que por alfabeto ordenaban antes que cualquier
+  fecha real, aunque no signifique "antes" en absoluto).
+- **Legibilidad del gráfico**: con el horizonte completo del motor (hasta 10 años) la
+  liquidez proyectada crece muy por encima del principal de deuda y lo aplana en un hilo
+  invisible en una escala compartida; se recorta la ventana a los ~6 meses tras saldarse
+  la última deuda.
+
+403 pruebas (403 pass), `npm run verify` en verde, flujo comparar → ver ruta → cambiar de
+pestaña → aplicar ruta → confirmar con motivo → guardado verificado de extremo a extremo
+con Playwright contra la app real.
+
+La rama de trabajo `claude/repo-analysis-3dupjd` se reinició sobre el `main` ya fusionado
+(PR #2 + esta nueva entrega), con el mismo nombre — la anterior PR quedó cerrada por
+fusión, no se reutiliza. Trabajo pendiente de publicar mediante un PR nuevo.
+
 ## Publicación — PR #2 fusionado a `main`
 
 A petición expresa del usuario ("confirmo fusión, publica todo lo que se pueda publicar"),

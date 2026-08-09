@@ -1075,3 +1075,298 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* -------------------------------------------------------------------------------------------- */
+/* Comparador de estrategias + Plan de deuda · ruta (E20-2) — mockups 1b/1c. Construidas sobre el  */
+/* mismo motor (resolveEscenario) que Motor de Escenario, así que reutilizan sus mismos            */
+/* componentes base (.e19-card/.e19-btn/.e19-badge/.e19-kpi-note/.e19-insight); este bloque cubre   */
+/* solo lo que no tenía equivalente: la rejilla de tarjetas de estrategia, el gráfico de área de    */
+/* deuda viva vs. liquidez, la línea de tiempo de la ruta y la cartera con barras proporcionales.   */
+/* -------------------------------------------------------------------------------------------- */
+
+/* .visual-controls es un `display:grid` genérico de 4 columnas (pensado para filtros con
+   selects, en styles.css) que no sirve para agrupar tabs + un enlace: fuerza los tabs a una
+   columna de ~130px, los hace desbordar y acaban tapando el enlace de al lado. Igual que el
+   `table { min-width: 1120px }` de E20-1, se anula solo en este ámbito en vez de tocar la regla
+   global, que sí es correcta para los filtros que la usan en otras pantallas. */
+.e19-deuda-decidir .section-title .visual-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.e19-deuda-decidir .deuda-decidir-reserve-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+}
+
+.e19-deuda-decidir .deuda-decidir-reserve-label input {
+  border: 1px solid var(--e19-border-strong);
+  border-radius: var(--e19-radius-sm);
+  padding: 8px 10px;
+  font: 400 var(--e19-text-base) / 1.3 var(--e19-font-sans);
+  color: var(--e19-ink);
+  background: var(--e19-surface);
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 18px 0;
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-card {
+  position: relative;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-card.is-recommended {
+  border-color: var(--e19-accent);
+  box-shadow: inset 0 0 0 1px var(--e19-accent);
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-card h3 {
+  margin: 0;
+  font: 700 var(--e19-text-lg) / 1.2 var(--e19-font-sans);
+  color: var(--e19-heading);
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-flag {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-kpis {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-kpis div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-kpis span {
+  font-size: var(--e19-text-xs);
+  color: var(--e19-muted);
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-kpis strong {
+  font-size: var(--e19-text-md);
+  color: var(--e19-ink);
+}
+
+.e19-deuda-decidir .deuda-decidir-strategy-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.e19-deuda-decidir .deuda-decidir-note {
+  color: var(--e19-faint);
+}
+
+.e19-deuda-decidir .deuda-decidir-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.e19-deuda-decidir .deuda-decidir-tab {
+  border: 1px solid var(--e19-border-strong);
+  border-radius: var(--e19-radius-pill);
+  background: var(--e19-surface);
+  color: var(--e19-muted);
+  font-size: var(--e19-text-sm);
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.e19-deuda-decidir .deuda-decidir-tab.is-active {
+  background: var(--e19-accent);
+  border-color: var(--e19-accent);
+  color: #fff;
+}
+
+.e19-deuda-decidir .deuda-ruta-chart-card {
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+.e19-deuda-decidir .deuda-ruta-chart {
+  width: 100%;
+  height: 200px;
+  display: block;
+  margin-top: 8px;
+}
+
+.e19-deuda-decidir .deuda-ruta-chart .chart-area-deuda {
+  fill: color-mix(in srgb, var(--e19-debt) 18%, transparent);
+  stroke: none;
+}
+
+.e19-deuda-decidir .deuda-ruta-chart .chart-line-deuda {
+  fill: none;
+  stroke: var(--e19-debt);
+  stroke-width: 2.5;
+}
+
+.e19-deuda-decidir .deuda-ruta-chart .chart-line-liquidez {
+  fill: none;
+  stroke: var(--e19-accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+.e19-deuda-decidir .deuda-ruta-chart .chart-label {
+  font: 500 10px / 1 var(--e19-font-sans);
+  fill: var(--e19-muted);
+}
+
+.e19-deuda-decidir .deuda-ruta-layout {
+  display: grid;
+  grid-template-columns: 1fr minmax(260px, 320px);
+  gap: 18px;
+  align-items: start;
+}
+
+.e19-deuda-decidir .deuda-ruta-layout > * {
+  min-width: 0;
+}
+
+.e19-deuda-decidir .deuda-ruta-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.e19-deuda-decidir .deuda-ruta-side .e19-card {
+  padding: 18px;
+}
+
+.e19-deuda-decidir .deuda-ruta-layout > .e19-card {
+  padding: 18px;
+}
+
+.e19-deuda-decidir .deuda-ruta-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.e19-deuda-decidir .deuda-ruta-timeline-item {
+  display: flex;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--e19-border);
+}
+
+.e19-deuda-decidir .deuda-ruta-timeline-item:last-child {
+  border-bottom: none;
+}
+
+.e19-deuda-decidir .deuda-ruta-timeline-month {
+  flex: none;
+  width: 72px;
+  font-size: var(--e19-text-xs);
+  font-weight: 700;
+  color: var(--e19-accent);
+}
+
+.e19-deuda-decidir .deuda-ruta-timeline-item p {
+  margin: 2px 0 0;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.e19-deuda-decidir .deuda-ruta-timeline-empty {
+  color: var(--e19-muted);
+}
+
+.e19-deuda-decidir .deuda-ruta-portfolio {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.e19-deuda-decidir .deuda-ruta-portfolio-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  font-size: var(--e19-text-sm);
+}
+
+.e19-deuda-decidir .deuda-ruta-portfolio-row span {
+  color: var(--e19-muted);
+}
+
+.e19-deuda-decidir .deuda-ruta-portfolio-row strong {
+  color: var(--e19-ink);
+  text-align: right;
+}
+
+.e19-deuda-decidir .deuda-ruta-portfolio-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  border-radius: var(--e19-radius-pill);
+  background: var(--e19-surface-sunken);
+  overflow: hidden;
+}
+
+.e19-deuda-decidir .deuda-ruta-portfolio-bar span {
+  display: block;
+  height: 100%;
+  background: var(--e19-debt);
+}
+
+.e19-deuda-decidir .deuda-ruta-checklist {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.e19-deuda-decidir .deuda-ruta-check {
+  font-size: var(--e19-text-sm);
+  padding: 8px 10px;
+  border-radius: var(--e19-radius-sm);
+  background: var(--e19-surface-soft);
+  color: var(--e19-muted);
+}
+
+.e19-deuda-decidir .deuda-ruta-check.is-ok {
+  color: var(--e19-success);
+  background: color-mix(in srgb, var(--e19-success) 10%, var(--e19-surface-soft));
+}
+
+.e19-deuda-decidir .deuda-ruta-check.is-danger {
+  color: var(--e19-danger);
+  background: color-mix(in srgb, var(--e19-danger) 10%, var(--e19-surface-soft));
+}
+
+@media (max-width: 860px) {
+  .e19-deuda-decidir .deuda-ruta-layout {
+    grid-template-columns: 1fr;
+  }
+}

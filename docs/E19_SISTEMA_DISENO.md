@@ -84,8 +84,8 @@ a la que corresponden y su estado de migración a día de hoy.
 | # | Título del mockup | Pantalla real | Estado |
 |---|---|---|---|
 | 1a | Hoy · navegación reducida a cuatro verbos, una lectura y tres decisiones | `#home` | ✅ Migrada (E19-2) |
-| 1b | Plan de deuda · ruta como línea de tiempo (dataviz A) | `#debt-roadmap` | ⏳ Pendiente |
-| 1c | Plan de deuda · comparador de estrategias (dataviz B) | `#debt-roadmap` / `#debt-liquidation-plan` | ⏳ Pendiente |
+| 1b | Plan de deuda · ruta como línea de tiempo (dataviz A) | `#deuda-ruta` | ✅ Migrada (E20-2) |
+| 1c | Plan de deuda · comparador de estrategias (dataviz B) | `#deuda-comparar` | ✅ Migrada (E20-2, parcial — ver nota) |
 | 1d | Asesor ejecutivo · una decisión abierta a la vez | `#executive-advisor` | ⏳ Pendiente |
 | 1e | Simulación nueva vida · simular → comparar → aplicar en una sola vista | `#escenario-simular` | ✅ Migrada (E20-1) |
 | 1f | Actualizar mis datos · hub ordenado por lo que tienes delante | `#update-hub` | ✅ Migrada (E19-3) |
@@ -137,3 +137,48 @@ Alcance de tipos de decisión: igual que en E20-1 día 1, solo `amortizacion` es
 conectada a estas tres pantallas. El resto de tipos que ya soporta el motor
 (`canonical-scenario-engine.js`: refinanciación, reunificación, compra, imprevisto…) se
 añadirán a los mismos tres controles en próximas fases, sin tener que rediseñar el flujo.
+
+## 6. Deuda: comparar estrategias → ruta (1b/1c)
+
+Los mockups 1b y 1c definen dos vistas del mismo plan de deuda: una comparación de
+estrategias con nombre (1c) y el detalle cronológico de la elegida (1b). Implementadas en
+E20-2 como `#deuda-comparar` y `#deuda-ruta`, construidas sobre el mismo motor que
+Escenario (`resolveEscenario`) en vez de sobre el pipeline heredado de
+`debt-liquidation-plan` (`DEBT_LIQUIDATION_ASSUMPTIONS`, entidades hardcodeadas): cada
+estrategia es una lista de decisiones `amortizacion` (pago total, `planificacion.modo:
+"optimo"`) sobre la cartera real (`canonicalDebtContractRows`), ordenada según el
+criterio de la estrategia, y resuelta de verdad por el motor — nunca un número inventado.
+
+**Solo tres estrategias, no cuatro.** El mockup 1c muestra "Quita + avalancha", "Bola de
+nieve", "Reunificación" y "No tocar nada". Aquí solo hay **avalancha** (ordena por TAE
+descendente), **bola de nieve** (ordena por saldo ascendente) y **no tocar nada** (sin
+decisiones, referencia). "Reunificación" como estrategia hipotética exigiría inventar
+unas condiciones de préstamo (TAE, plazo) que no existen todavía como oferta real en los
+datos — documentado en la propia pantalla en vez de fabricar una cifra. El día que exista
+una oferta de reunificación real registrada (como ya permite el flujo de ofertas de
+`#debt-roadmap`/E14b), puede añadirse como estrategia comparable de verdad.
+
+**Recomendada** = la estrategia viable (todas sus decisiones resueltas como "aplicada")
+con la fecha de libre de deuda más temprana; en empate, la de menor coste total
+ejecutado. `escenarioMotorLibreDeDeuda` no siempre devuelve una fecha real — puede
+devolver "sin deuda pendiente", "sin fecha estimable" (queda un registro sin cuota activa,
+p. ej. una reunificación histórica) o "fuera de horizonte"; comparar esos textos como
+cadenas ordenaría mal, así que se traduce cada caso a un rango explícito antes de
+comparar en vez de fiarse de una coincidencia alfabética.
+
+**"Deuda a cero" ambas pantallas la reutilizan.** "Ver ruta"/"Aplicar la recomendada"
+cargan las decisiones de la estrategia elegida directamente en
+`escenarioMotorDecisions` y navegan a `#escenario-aplicar` — el mismo diff línea a línea
+con motivo obligatorio de E20-1, sin reconstruir esa lógica. El gráfico de `#deuda-ruta`
+("deuda viva vs. liquidez") recorta la ventana temporal a los ~6 meses tras saldarse la
+última deuda (o 36 meses si no llega a saldarse en este horizonte): con el horizonte
+completo del motor (hasta 10 años) la liquidez crece muy por encima del principal de
+deuda y la aplana en un hilo invisible en una escala compartida.
+
+**Reserva mínima con suelo por defecto.** El motor solo busca mes viable si se declara un
+guardarraíl positivo; sin ninguno, "modo óptimo" no comprueba nada y todo cae en el
+primer mes del horizonte sin importar cuánto quede la caja en negativo. Si el usuario no
+ha configurado una reserva (aquí, o en Presupuesto de riesgo, `state.operatingReserve`),
+se usa un suelo de 0 € por defecto — nunca "sin comprobar nada" en silencio — y el
+checklist "antes de aplicar" deja explícito si la cifra es una reserva real configurada o
+el suelo por defecto.

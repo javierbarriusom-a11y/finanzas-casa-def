@@ -18533,6 +18533,358 @@ function handleEscenarioGuardadosNew() {
   escenarioMotorNavigate("escenario-simular");
 }
 
+// ---------------------------------------------------------------------------------------------
+// Comparador de estrategias + plan de deuda · ruta (mockups 1b/1c). Construidos sobre el mismo
+// motor E20 (resolveEscenario) que #escenario-simular, no sobre el pipeline heredado de
+// debt-liquidation-plan (DEBT_LIQUIDATION_ASSUMPTIONS, entidades hardcodeadas): cada estrategia es
+// una lista de decisiones "amortizacion" (pago total, modo "optimo") sobre la cartera real
+// (canonicalDebtContractRows), ordenada según el criterio de la estrategia. Solo tres estrategias
+// tienen lógica real hoy — avalancha (TAE desc), bola de nieve (saldo asc) y no tocar nada (sin
+// decisiones) — porque "reunificación" exigiría una oferta real (TAE, plazo) que no existe todavía
+// en los datos; documentado en la propia pantalla en vez de fabricar una cifra.
+// ---------------------------------------------------------------------------------------------
+const DEBT_STRATEGY_DEFINITIONS = [
+  { id: "avalancha", label: "Avalancha", desc: "Salda primero la deuda con mayor TAE." },
+  { id: "bola-nieve", label: "Bola de nieve", desc: "Salda primero la deuda con menor saldo." },
+  { id: "no-tocar", label: "No tocar nada", desc: "Sigue el calendario actual de cada deuda, sin decisiones nuevas." },
+];
+
+let debtStrategyReserveValue = null;
+let deudaRutaSelectedStrategy = "avalancha";
+
+function debtStrategyReserveDefault() {
+  const configured = Number(state?.operatingReserve || 0);
+  return configured > 0 ? configured : null;
+}
+
+// El motor solo aplica guardarraíl si saldoMinimoAbsoluto > 0 (runEscenarioMotor): sin ninguno,
+// "modo optimo" no comprueba nada y todas las decisiones caen en el primer mes del horizonte a la
+// vez, sin importar cuánto quede la liquidez en negativo — inútil para secuenciar de verdad. Si el
+// usuario no ha configurado una reserva real (ni aquí ni en Presupuesto de riesgo), se usa un suelo
+// de 0 € por defecto (no permitir liquidez negativa) en vez de no comprobar nada; se etiqueta
+// siempre cuál de los dos casos es, nunca se oculta.
+function debtStrategyEffectiveReserve(reserveValue) {
+  return Number.isFinite(reserveValue) && reserveValue > 0 ? reserveValue : 0.01;
+}
+
+function debtStrategyOrderedContracts(strategyId) {
+  const contracts = escenarioMotorDebtOptions();
+  if (strategyId === "avalancha") {
+    return contracts.slice().sort((a, b) => (Number(b.apr) || -1) - (Number(a.apr) || -1));
+  }
+  if (strategyId === "bola-nieve") {
+    return contracts.slice().sort((a, b) => Number(a.currentPrincipal) - Number(b.currentPrincipal));
+  }
+  return [];
+}
+
+function debtStrategyDecisions(strategyId) {
+  return debtStrategyOrderedContracts(strategyId).map((contract, index) => ({
+    id: `deuda-estrategia-${strategyId}-${index}`,
+    tipo: "amortizacion",
+    activa: true,
+    orden: index,
+    planificacion: { modo: "optimo" },
+    params: { deudaId: contract.id, importe: Number(contract.currentPrincipal) },
+  }));
+}
+
+function debtStrategyResult(strategyId, baseInput, reserveValue) {
+  const decisions = debtStrategyDecisions(strategyId);
+  const result = runEscenarioMotor(baseInput, decisions, debtStrategyEffectiveReserve(reserveValue));
+  return { decisions, result };
+}
+
+function debtStrategySummary(strategyId, baseInput, reserveValue) {
+  const { decisions, result } = debtStrategyResult(strategyId, baseInput, reserveValue);
+  if (!result || !result.valid) return { decisions, result, libreDeDeuda: null, cajaMinima: null, costeTotal: 0, viable: false, aplicadas: 0, total: decisions.length };
+  const resultadosById = new Map((result.resultados || []).map((item) => [item.id, item]));
+  const aplicadas = decisions.filter((decision) => resultadosById.get(decision.id)?.resultado === "aplicada");
+  const costeTotal = aplicadas.reduce((sum, decision) => sum + Number(decision.params.importe || 0), 0);
+  return {
+    decisions,
+    result,
+    libreDeDeuda: escenarioMotorLibreDeDeuda(result.debtStateFinal, baseInput.months),
+    cajaMinima: result.series.length ? Math.min(...result.series.map((row) => row.totalLiquidity)) : null,
+    costeTotal: round2(costeTotal),
+    viable: aplicadas.length === decisions.length,
+    aplicadas: aplicadas.length,
+    total: decisions.length,
+  };
+}
+
+// escenarioMotorLibreDeDeuda no siempre devuelve una fecha "YYYY-MM": puede devolver "sin deuda
+// pendiente", "sin fecha estimable · sin cuota activa" (nada queda con cuota activa que proyectar,
+// típicamente porque esta estrategia ya saldó todo lo accionable y solo queda un registro fantasma
+// sin cuota, como una reunificación histórica) o "fuera de horizonte" (sí queda cuota activa, pero
+// su cierre cae más allá del horizonte modelado). Comparar estos textos como cadenas ordena mal
+// ("sin..." va antes que cualquier fecha real por alfabeto, no porque sea mejor) — se traduce cada
+// caso a un rango explícito antes de comparar: sin deuda pendiente/sin cuota que proyectar cuentan
+// como lo mejor posible (nada más se puede acelerar), una fecha real ordena por su propio valor, y
+// fuera de horizonte cuenta como lo peor (no se sabe cuándo termina).
+function debtStrategyLibreDeDeudaRank(label) {
+  const text = String(label || "");
+  if (text === "sin deuda pendiente" || text.startsWith("sin fecha estimable")) return "0000-00";
+  if (text === "fuera de horizonte") return "9999-99";
+  const match = text.match(/^(\d{4}-\d{2})/);
+  return match ? match[1] : "9999-98";
+}
+
+// Recomendada = la primera libre de deuda (por el rango de arriba) entre las estrategias que
+// resolvieron TODAS sus decisiones (viable); en empate, la de menor coste total ejecutado. Si
+// ninguna es viable, no se recomienda nada en vez de forzar una elección sobre un resultado a medias.
+function debtStrategyRecommended(summaries) {
+  const viable = summaries.filter((entry) => entry.viable && entry.total > 0);
+  if (!viable.length) return null;
+  return viable
+    .slice()
+    .sort((a, b) => debtStrategyLibreDeDeudaRank(a.libreDeDeuda).localeCompare(debtStrategyLibreDeDeudaRank(b.libreDeDeuda)) || a.costeTotal - b.costeTotal)
+    .at(0).id;
+}
+
+function debtStrategyDecisionsToEscenario(strategyId) {
+  const decisions = debtStrategyDecisions(strategyId);
+  escenarioMotorSeq += decisions.length;
+  escenarioMotorDecisions = decisions.map((decision, index) => ({ ...decision, id: `escenario-motor-${escenarioMotorSeq - decisions.length + index + 1}` }));
+  escenarioMotorGuardrailValue = debtStrategyReserveValue;
+}
+
+function renderDeudaComparar() {
+  const grid = qs("deudaCompararGrid");
+  if (!grid) return;
+  const reserveField = qs("deudaCompararReserve");
+  if (debtStrategyReserveValue === null) debtStrategyReserveValue = debtStrategyReserveDefault();
+  if (reserveField && document.activeElement !== reserveField) reserveField.value = debtStrategyReserveValue ?? "";
+
+  const baseInput = escenarioMotorBaseInput();
+  const summaries = DEBT_STRATEGY_DEFINITIONS.map((def) => ({ id: def.id, def, ...debtStrategySummary(def.id, baseInput, debtStrategyReserveValue) }));
+  const recommendedId = debtStrategyRecommended(summaries);
+
+  grid.innerHTML = summaries
+    .map((entry) => {
+      const isRecommended = entry.id === recommendedId;
+      const isNoTouch = entry.total === 0;
+      const statusNote = isNoTouch
+        ? "Referencia: nada cambia."
+        : entry.viable
+        ? ""
+        : `${entry.aplicadas}/${entry.total} decisiones viables en este horizonte.`;
+      return `<article class="e19-card deuda-decidir-strategy-card${isRecommended ? " is-recommended" : ""}">
+        ${isRecommended ? '<span class="e19-badge e19-badge-success deuda-decidir-strategy-flag">Recomendada</span>' : ""}
+        <h3>${escapeHtml(entry.def.label)}</h3>
+        <p class="e19-kpi-note">${escapeHtml(entry.def.desc)}</p>
+        <div class="deuda-decidir-strategy-kpis">
+          <div><span>Libre de deuda</span><strong>${escapeHtml(escenarioMotorMonthLabel(entry.libreDeDeuda))}</strong></div>
+          <div><span>Coste total ejecutado</span><strong>${money(entry.costeTotal, true)}</strong></div>
+          <div><span>Caja mínima</span><strong>${money(entry.cajaMinima ?? 0, true)}</strong></div>
+        </div>
+        ${statusNote ? `<p class="e19-kpi-note is-warn">${escapeHtml(statusNote)}</p>` : ""}
+        <div class="deuda-decidir-strategy-actions">
+          <button type="button" class="e19-btn e19-btn-secondary" data-deuda-comparar-ruta="${escapeHtml(entry.id)}">Ver ruta</button>
+          ${isRecommended ? `<button type="button" class="e19-btn e19-btn-primary" data-deuda-comparar-aplicar="${escapeHtml(entry.id)}">Aplicar la recomendada</button>` : ""}
+        </div>
+      </article>`;
+    })
+    .join("");
+
+  const insight = qs("deudaCompararInsight");
+  const noTouch = summaries.find((entry) => entry.id === "no-tocar");
+  const recommended = summaries.find((entry) => entry.id === recommendedId);
+  if (insight) {
+    if (recommended && noTouch && recommended.id !== "no-tocar") {
+      const costeDelta = round2(noTouch.costeTotal - recommended.costeTotal);
+      insight.hidden = false;
+      insight.innerHTML = `<strong>${escapeHtml(recommended.def.label)} sale mejor que no tocar nada</strong>
+        <p>Libre de deuda con ${escapeHtml(recommended.def.label.toLowerCase())}: ${escapeHtml(escenarioMotorMonthLabel(recommended.libreDeDeuda))} (sin tocar nada: ${escapeHtml(escenarioMotorMonthLabel(noTouch.libreDeDeuda))})${costeDelta ? `, con ${money(Math.abs(costeDelta), true)} ${costeDelta >= 0 ? "menos" : "más"} de coste ejecutado` : ""}.</p>`;
+    } else {
+      insight.hidden = true;
+    }
+  }
+}
+
+function handleDeudaCompararReserveInput(event) {
+  const value = Number(event.target.value);
+  debtStrategyReserveValue = Number.isFinite(value) && value > 0 ? value : null;
+  renderDeudaComparar();
+}
+
+function handleDeudaCompararVerRuta(strategyId) {
+  deudaRutaSelectedStrategy = strategyId;
+  escenarioMotorNavigate("deuda-ruta");
+}
+
+function handleDeudaCompararAplicar(strategyId) {
+  debtStrategyDecisionsToEscenario(strategyId);
+  escenarioMotorNavigate("escenario-aplicar");
+}
+
+// Deuda viva = principal pendiente de los contratos que la ruta todavía no ha resuelto en firme
+// ("aplicada"). Como cada decisión es un pago total, es una función escalón exacta a partir de
+// mesResuelto — no una aproximación de calendario de amortización mes a mes.
+function buildDeudaVivaSeries(months, contracts, decisions, resultadosById) {
+  const payoffMonthByDebt = new Map();
+  decisions.forEach((decision) => {
+    const resultado = resultadosById.get(decision.id);
+    if (resultado?.resultado === "aplicada" && resultado.mesResuelto) {
+      payoffMonthByDebt.set(decision.params.deudaId, resultado.mesResuelto);
+    }
+  });
+  return months.map((month) => {
+    const total = contracts.reduce((sum, contract) => {
+      const payoffMonth = payoffMonthByDebt.get(contract.id);
+      const alreadySettled = payoffMonth && payoffMonth <= month.monthKey;
+      return alreadySettled ? sum : sum + Number(contract.currentPrincipal || 0);
+    }, 0);
+    return { monthKey: month.monthKey, deudaViva: round2(total) };
+  });
+}
+
+// El horizonte completo del motor (hasta 10 años) hace que la liquidez proyectada crezca muy por
+// encima del principal de deuda, que solo importa en los primeros años: en una escala compartida la
+// deuda queda aplastada en un hilo casi invisible. Se recorta la ventana a los últimos 6 meses tras
+// saldarse la última deuda (o 36 meses si nunca llega a saldarse del todo en este horizonte), igual
+// que el mockup solo muestra ~3 años en vez de los 10 completos.
+function deudaRutaChartWindow(deudaSeries, liquidezSeries, months) {
+  const lastAliveIndex = deudaSeries.reduce((last, row, index) => (row.deudaViva > 0 ? index : last), -1);
+  const end = lastAliveIndex === -1 ? Math.min(months.length, 36) : Math.min(months.length, lastAliveIndex + 7);
+  return { deudaSeries: deudaSeries.slice(0, end), liquidezSeries: liquidezSeries.slice(0, end), months: months.slice(0, end) };
+}
+
+function renderDeudaRutaChart(deudaSeries, liquidezSeries, months) {
+  const svg = qs("deudaRutaChart");
+  if (!svg || !deudaSeries.length) return;
+  const width = svg.clientWidth || 640;
+  const height = 200;
+  const pad = { left: 60, right: 16, top: 16, bottom: 26 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const values = [...deudaSeries.map((row) => row.deudaViva), ...liquidezSeries.map((row) => row.totalLiquidity)];
+  const minV = Math.min(...values, 0);
+  const maxV = Math.max(...values, 1);
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const n = deudaSeries.length;
+  const x = (i) => pad.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+  const y = (value) => pad.top + plotH - ((value - minV) / Math.max(1, maxV - minV)) * plotH;
+
+  const deudaLine = deudaSeries.map((row, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(2)} ${y(row.deudaViva).toFixed(2)}`).join(" ");
+  const deudaArea = `${deudaLine} L ${x(n - 1).toFixed(2)} ${(pad.top + plotH).toFixed(2)} L ${x(0).toFixed(2)} ${(pad.top + plotH).toFixed(2)} Z`;
+  const liquidezLine = liquidezSeries.map((row, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(2)} ${y(row.totalLiquidity).toFixed(2)}`).join(" ");
+
+  let markup = `<path class="chart-area-deuda" d="${deudaArea}" />`;
+  markup += `<path class="chart-line-deuda" d="${deudaLine}" />`;
+  markup += `<path class="chart-line-liquidez" d="${liquidezLine}" />`;
+  projectChartTickIndexes(months, width).forEach((idx) => {
+    markup += `<text class="chart-label" x="${(x(idx) - 14).toFixed(2)}" y="${height - 6}">${escapeHtml(months[idx]?.month || "")}</text>`;
+  });
+  svg.insertAdjacentHTML("beforeend", markup);
+}
+
+function renderDeudaRuta() {
+  if (debtStrategyReserveValue === null) debtStrategyReserveValue = debtStrategyReserveDefault();
+  const tabs = qs("deudaRutaTabs");
+  if (tabs) {
+    tabs.innerHTML = DEBT_STRATEGY_DEFINITIONS.map(
+      (def) => `<button type="button" class="deuda-decidir-tab${def.id === deudaRutaSelectedStrategy ? " is-active" : ""}" data-deuda-ruta-tab="${escapeHtml(def.id)}">${escapeHtml(def.label)}</button>`
+    ).join("");
+  }
+
+  const baseInput = escenarioMotorBaseInput();
+  const contracts = escenarioMotorDebtOptions();
+  const summary = debtStrategySummary(deudaRutaSelectedStrategy, baseInput, debtStrategyReserveValue);
+  const def = DEBT_STRATEGY_DEFINITIONS.find((item) => item.id === deudaRutaSelectedStrategy);
+  const resultadosById = new Map((summary.result?.resultados || []).map((item) => [item.id, item]));
+
+  const titleEl = qs("deudaRutaTitle");
+  if (titleEl) {
+    const esFecha = /^\d{4}-\d{2}/.test(String(summary.libreDeDeuda || ""));
+    titleEl.textContent = esFecha
+      ? `Sin deuda en ${escenarioMotorMonthLabel(summary.libreDeDeuda)}`
+      : `Libre de deuda: ${escenarioMotorMonthLabel(summary.libreDeDeuda)}`;
+  }
+  const subtitleEl = qs("deudaRutaSubtitle");
+  if (subtitleEl) {
+    subtitleEl.textContent = `${def?.label || deudaRutaSelectedStrategy}: ${summary.total} decisión(es), ${money(summary.costeTotal, true)} de coste ejecutado, caja mínima ${money(summary.cajaMinima ?? 0, true)}.`;
+  }
+
+  const deudaViva = buildDeudaVivaSeries(baseInput.months, contracts, summary.decisions, resultadosById);
+  const chartWindow = deudaRutaChartWindow(deudaViva, summary.result?.series || [], baseInput.months);
+  renderDeudaRutaChart(chartWindow.deudaSeries, chartWindow.liquidezSeries, chartWindow.months);
+
+  const timeline = qs("deudaRutaTimeline");
+  if (timeline) {
+    const debts = new Map(contracts.map((contract) => [contract.id, contract]));
+    const ordered = summary.decisions
+      .map((decision) => ({ decision, resultado: resultadosById.get(decision.id) }))
+      .sort((a, b) => String(a.resultado?.mesResuelto || "9999").localeCompare(String(b.resultado?.mesResuelto || "9999")));
+    timeline.innerHTML = ordered.length
+      ? ordered
+          .map(({ decision, resultado }) => {
+            const contract = debts.get(decision.params.deudaId);
+            const info = resultado ? escenarioMotorResultInfo(resultado.resultado) : { text: "Sin calcular", badge: "e19-badge-neutral" };
+            return `<li class="deuda-ruta-timeline-item">
+              <span class="deuda-ruta-timeline-month">${escapeHtml(escenarioMotorMonthLabel(resultado?.mesResuelto))}</span>
+              <div>
+                <strong>${escapeHtml(contract ? escenarioMotorDebtLabel(contract) : decision.params.deudaId)}</strong>
+                <p>${money(decision.params.importe, true)} · <span class="e19-badge ${info.badge}">${escapeHtml(info.text)}</span></p>
+              </div>
+            </li>`;
+          })
+          .join("")
+      : `<li class="deuda-ruta-timeline-item deuda-ruta-timeline-empty">Sin decisiones: la deuda sigue su calendario actual.</li>`;
+  }
+
+  const portfolio = qs("deudaRutaPortfolio");
+  if (portfolio) {
+    const maxPrincipal = Math.max(1, ...contracts.map((contract) => Number(contract.currentPrincipal) || 0));
+    portfolio.innerHTML = contracts
+      .slice()
+      .sort((a, b) => Number(b.currentPrincipal) - Number(a.currentPrincipal))
+      .map((contract) => `<div class="deuda-ruta-portfolio-row">
+          <span>${escapeHtml(escenarioMotorDebtLabel(contract))}</span>
+          <strong>${money(contract.currentPrincipal, true)}</strong>
+          <div class="deuda-ruta-portfolio-bar"><span style="width:${Math.round((Number(contract.currentPrincipal) / maxPrincipal) * 100)}%"></span></div>
+        </div>`)
+      .join("");
+  }
+
+  const checklist = qs("deudaRutaChecklist");
+  const applyButton = qs("deudaRutaApply");
+  const reserveConfigured = Number.isFinite(debtStrategyReserveValue);
+  const effectiveReserve = debtStrategyEffectiveReserve(debtStrategyReserveValue);
+  const reserveOk = (summary.cajaMinima ?? 0) >= effectiveReserve;
+  const checks = [
+    {
+      ok: reserveOk,
+      label: reserveOk
+        ? reserveConfigured
+          ? "Reserva mínima protegida durante toda la ruta"
+          : "No baja de 0 € en ningún mes (sin reserva mínima configurada)"
+        : reserveConfigured
+        ? "La ruta baja de la reserva mínima indicada"
+        : "La ruta deja la caja en negativo en algún mes",
+    },
+    { ok: summary.total === 0 ? null : summary.viable, label: summary.total === 0 ? "Sin decisiones que aplicar" : summary.viable ? "Todas las decisiones tienen mes viable" : `${summary.total - summary.aplicadas} decisión(es) sin mes viable en este horizonte` },
+  ];
+  if (checklist) {
+    checklist.innerHTML = checks
+      .map((check) => `<li class="deuda-ruta-check${check.ok === false ? " is-danger" : check.ok === null ? " is-neutral" : " is-ok"}">${escapeHtml(check.label)}</li>`)
+      .join("");
+  }
+  if (applyButton) applyButton.disabled = summary.total === 0 || !summary.viable;
+}
+
+function handleDeudaRutaTab(strategyId) {
+  deudaRutaSelectedStrategy = strategyId;
+  renderDeudaRuta();
+}
+
+function handleDeudaRutaApply() {
+  debtStrategyDecisionsToEscenario(deudaRutaSelectedStrategy);
+  escenarioMotorNavigate("escenario-aplicar");
+}
+
 function renderActiveSection(viewId = viewFromHash()) {
   if (!lastSimulation.length) return;
   switch (viewId) {
@@ -18565,6 +18917,12 @@ function renderActiveSection(viewId = viewFromHash()) {
       break;
     case "escenario-guardados":
       renderEscenarioGuardados();
+      break;
+    case "deuda-comparar":
+      renderDeudaComparar();
+      break;
+    case "deuda-ruta":
+      renderDeudaRuta();
       break;
     case "debt-roadmap":
       renderE14bPanel();
@@ -19069,6 +19427,18 @@ async function init() {
     const deleteButton = event.target.closest("[data-escenario-guardado-delete]");
     if (deleteButton) handleEscenarioGuardadosDelete(deleteButton.dataset.escenarioGuardadoDelete);
   });
+  qs("deudaCompararReserve")?.addEventListener("input", handleDeudaCompararReserveInput);
+  qs("deudaCompararGrid")?.addEventListener("click", (event) => {
+    const rutaButton = event.target.closest("[data-deuda-comparar-ruta]");
+    if (rutaButton) { handleDeudaCompararVerRuta(rutaButton.dataset.deudaCompararRuta); return; }
+    const aplicarButton = event.target.closest("[data-deuda-comparar-aplicar]");
+    if (aplicarButton) handleDeudaCompararAplicar(aplicarButton.dataset.deudaCompararAplicar);
+  });
+  qs("deudaRutaTabs")?.addEventListener("click", (event) => {
+    const tabButton = event.target.closest("[data-deuda-ruta-tab]");
+    if (tabButton) handleDeudaRutaTab(tabButton.dataset.deudaRutaTab);
+  });
+  qs("deudaRutaApply")?.addEventListener("click", handleDeudaRutaApply);
   qs("debt-liquidation-plan")?.addEventListener("click", (event) => {
     const targetButton = event.target.closest("[data-debt-plan-target]");
     if (targetButton) {
