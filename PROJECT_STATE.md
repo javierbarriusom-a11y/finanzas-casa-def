@@ -2,6 +2,44 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Cierre de sesión — E20-1: rediseño de Escenario según los mockups reales (1e/2d/2e)
+
+A petición expresa del usuario, la pantalla única `#escenario-motor` del día 1 se
+rediseñó como el flujo de **tres pantallas encadenadas** que definen los mockups
+1e/2d/2e: `#escenario-simular` (panel de controles + gráfico plan-vs-simulación con línea
+de reserva + KPIs de liquidez final/caja mínima/libre de deuda + aviso de límite roto con
+"ajustar automáticamente"), `#escenario-aplicar` (diff línea a línea + motivo obligatorio)
+y `#escenario-guardados` (lista con estado aplicado/guardado, KPIs recalculados al vuelo,
+persistida en `localStorage`). Detalle completo, incluidas las simplificaciones
+deliberadas frente al mockup (solo dos estados, "aplicar" no muta las deudas reales), en
+`docs/E19_SISTEMA_DISENO.md` §5.
+
+Añadido de verdad en este rediseño, no solo estético:
+- KPI "Libre de deuda", calculado desde el estado real de los contratos (cuota × plazo
+  restante), nunca inventado — con su propio caso límite gestionado explícitamente (una
+  deuda sin cuota activa, p. ej. suspendida o el registro histórico de una reunificación,
+  no tiene fecha proyectable y se dice así en vez de fabricar una).
+- El contexto de deudas del motor pasó de `debtContractSourceRows()` a
+  `canonicalDebtContractRows()`, que incluye el plan reunificado sintético — antes
+  quedaba fuera del alcance de la pantalla sin que nada lo avisara.
+- "Ajustar automáticamente" reutiliza de verdad la búsqueda de mes óptimo del motor
+  (`planificacion.modo: "optimo"`, E20-0 día 3) — no es un botón decorativo.
+- Persistencia real de escenarios guardados vía `localStorage` (antes: solo en memoria de
+  sesión).
+
+Bug de layout real encontrado y corregido durante la verificación visual con Playwright
+(no solo capturas — clics reales de extremo a extremo): una tabla de 5 columnas dentro del
+panel estrecho de 300px desbordaba fuera del viewport en vez de activar scroll horizontal,
+por dos causas combinadas — un hijo de grid sin `min-width: 0` no se encoge por debajo del
+ancho intrínseco de su contenido, y una regla genérica `table { min-width: 1120px }` ya
+existente en `styles.css` (pensada para las tablas grandes de datos) se aplicaba también
+aquí. Corregido con `min-width: 0` en los hijos del grid y `table-layout: fixed` con
+anchos de columna explícitos en la tabla de diferencias.
+
+403 pruebas (403 pass), `npm run verify` en verde, flujo simular → aplicar → guardados
+verificado de extremo a extremo con Playwright contra la app real (incluida persistencia
+tras recargar la página).
+
 ## Mockups originales documentados en el repositorio
 
 El usuario aportó el documento de mockups completo ("Finanzas Casa · Mockups", 15

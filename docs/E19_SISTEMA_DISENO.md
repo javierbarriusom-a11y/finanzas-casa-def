@@ -87,7 +87,7 @@ a la que corresponden y su estado de migración a día de hoy.
 | 1b | Plan de deuda · ruta como línea de tiempo (dataviz A) | `#debt-roadmap` | ⏳ Pendiente |
 | 1c | Plan de deuda · comparador de estrategias (dataviz B) | `#debt-roadmap` / `#debt-liquidation-plan` | ⏳ Pendiente |
 | 1d | Asesor ejecutivo · una decisión abierta a la vez | `#executive-advisor` | ⏳ Pendiente |
-| 1e | Simulación nueva vida · simular → comparar → aplicar en una sola vista | `#escenario-motor` (en construcción, E20-1) | ⚠️ Ver nota E20-1 abajo |
+| 1e | Simulación nueva vida · simular → comparar → aplicar en una sola vista | `#escenario-simular` | ✅ Migrada (E20-1) |
 | 1f | Actualizar mis datos · hub ordenado por lo que tienes delante | `#update-hub` | ✅ Migrada (E19-3) |
 | 1g | Conciliación · las diferencias como tareas, no como tablas | `#reconciliation` | ⏳ Pendiente |
 
@@ -98,8 +98,8 @@ a la que corresponden y su estado de migración a día de hoy.
 | 2a | Registrar el mes · una fila por partida, guardado automático | `#update-data` | ⏳ Pendiente |
 | 2b | Importar extracto · bandeja previa con cuatro pasos | `#data-entry` | ✅ Migrada (E19-4) |
 | 2c | Previsión · el año como una banda, desglose del mes al clic | `#prevision` / `#forecast` | ✅ Migrada (E19-5) |
-| 2d | Aplicar escenario · diferencia línea a línea antes de tocar el plan | *(no existe todavía)* | ⚠️ Ver nota E20-1 abajo |
-| 2e | Escenarios guardados · cuál está aplicado, cuál caduca | *(no existe todavía)* | ⚠️ Ver nota E20-1 abajo |
+| 2d | Aplicar escenario · diferencia línea a línea antes de tocar el plan | `#escenario-aplicar` | ✅ Migrada (E20-1) |
+| 2e | Escenarios guardados · cuál está aplicado, cuál caduca | `#escenario-guardados` | ✅ Migrada (E20-1, parcial — ver nota) |
 
 ### Turno 3 — Cuadro de mandos con impacto
 
@@ -109,21 +109,31 @@ a la que corresponden y su estado de migración a día de hoy.
 | 3b | Bandeja de cambios · efecto conjunto de todo lo tocado en la sesión | *(no existe todavía)* | ⏳ Pendiente |
 | 3c | Mapa de calor · dónde duele cada cambio, sin leer una cifra | *(no existe todavía)* | ⏳ Pendiente |
 
-## 5. Nota E20-1: el mockup real de "Escenario" es más amplio que el día 1 construido
+## 5. Escenario: simular → aplicar → guardados (1e/2d/2e)
 
-Los mockups 1e, 2d y 2e definen el flujo completo de decisión como **tres pantallas
-encadenadas**, no una: **1e** "simular" (panel de controles a la izquierda — sliders y
-selects por tipo de decisión —, gráfico plan-actual-vs-simulación con línea de reserva,
-KPIs de liquidez final / caja mínima / mes libre de deuda, aviso si la simulación rompe un
-límite con botón "ajustar automáticamente"); **2d** "aplicar" (diff línea a línea de lo
-que cambiaría, con motivo obligatorio antes de confirmar); **2e** "guardados" (lista de
-escenarios con su estado — aplicado / recomendado / guardado / caducado — y comparador).
+Los mockups 1e, 2d y 2e definen el flujo de decisión como **tres pantallas encadenadas**,
+implementadas así desde E20-1: `#escenario-simular` (panel de controles a la izquierda,
+gráfico plan-actual-vs-simulación con línea de reserva, KPIs de liquidez final / caja
+mínima / libre de deuda, aviso si la simulación rompe un límite con botón "ajustar
+automáticamente" que reintenta con `planificacion.modo: "optimo"` del motor real),
+`#escenario-aplicar` (diff línea a línea, motivo obligatorio antes de confirmar) y
+`#escenario-guardados` (lista de escenarios con estado y KPIs recalculados al vuelo sobre
+el estado actual, nunca cifras congeladas).
 
-La pantalla `#escenario-motor` construida en E20-1 día 1 (formulario + tabla de
-decisiones + dos KPIs) resuelve el mismo problema de fondo — conectar
-`canonical-scenario-engine.js` a la interfaz con datos reales — pero con una interacción
-mucho más simple que la diseñada, y sin las tres pantallas separadas (simular, aplicar,
-guardar). Se construyó así porque el mockup no había llegado todavía a la sesión cuando
-se implementó el día 1. Pendiente de decisión del usuario: rediseñar `#escenario-motor`
-hacia este mockup real ahora, o seguir sumando tipos de decisión con el patrón actual y
-reconciliar visualmente más adelante.
+Dos simplificaciones deliberadas frente al mockup, documentadas en vez de fabricadas:
+
+- **Solo dos estados, no cuatro.** El mockup 2e muestra `aplicado / recomendado / guardado
+  / caducado`. Aquí solo existen `aplicado`/`guardado`: "recomendado" necesitaría un motor
+  de recomendación que no existe, y "caducado" un concepto de oferta con vencimiento que
+  tampoco. Añadir esos dos con datos falsos habría sido peor que no tenerlos.
+- **"Aplicar" no muta las deudas reales.** `DEBT_PORTFOLIO` es una constante del código
+  fuente; no hay ni ha habido nunca, en ninguna pantalla de la app, un mecanismo para
+  reescribirla desde la interfaz. "Confirmar y aplicar" registra el escenario como el
+  aplicado en `#escenario-guardados` (con motivo y fecha, en `localStorage`) — no escribe
+  en ningún dato real. Es honesto y reversible por construcción, pero no es literalmente
+  el "commit al plan" que el mockup insinúa.
+
+Alcance de tipos de decisión: igual que en E20-1 día 1, solo `amortizacion` está
+conectada a estas tres pantallas. El resto de tipos que ya soporta el motor
+(`canonical-scenario-engine.js`: refinanciación, reunificación, compra, imprevisto…) se
+añadirán a los mismos tres controles en próximas fases, sin tener que rediseñar el flujo.
