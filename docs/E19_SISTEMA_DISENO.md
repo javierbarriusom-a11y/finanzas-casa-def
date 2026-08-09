@@ -133,10 +133,8 @@ Dos simplificaciones deliberadas frente al mockup, documentadas en vez de fabric
   en ningún dato real. Es honesto y reversible por construcción, pero no es literalmente
   el "commit al plan" que el mockup insinúa.
 
-Alcance de tipos de decisión: igual que en E20-1 día 1, solo `amortizacion` está
-conectada a estas tres pantallas. El resto de tipos que ya soporta el motor
-(`canonical-scenario-engine.js`: refinanciación, reunificación, compra, imprevisto…) se
-añadirán a los mismos tres controles en próximas fases, sin tener que rediseñar el flujo.
+Alcance de tipos de decisión: ver §9 — desde E20-3 el formulario cubre los once tipos que
+el motor resuelve, sin cambiar el flujo de tres pantallas.
 
 ## 6. Deuda: comparar estrategias → ruta (1b/1c)
 
@@ -236,3 +234,74 @@ Cifras reales, no fabricadas:
 "Revisar y aplicar en Plan de deuda" preselecciona la oferta y navega a `#debt-roadmap`
 — reutiliza el flujo real de aplicación (motivo, documentos mínimos, reserva protegida)
 en vez de reconstruirlo aquí.
+
+## 9. Los once tipos de decisión de `#escenario-simular` (E20-3)
+
+Hasta E20-2 el formulario de «Qué cambias» tenía cuatro controles fijos (deuda, importe,
+mes, guardarraíl) y solo sabía construir decisiones de tipo `amortizacion`, aunque el motor
+(`canonical-scenario-engine.js`) ya resolvía once tipos desde E20-0 día 4. Desde E20-3 el
+formulario es un **catálogo declarativo** (`ESCENARIO_MOTOR_TYPES` en `app.js`): un
+desplegable de tipo, agrupado en «Deuda» y «Vida», y una rejilla de campos que se
+reconstruye según el tipo elegido.
+
+Los once tipos ofrecidos:
+
+| Grupo | Tipo | Qué pide |
+| --- | --- | --- |
+| Deuda | `amortizacion` | Deuda, importe, mes, y una casilla para forzar que sea parcial |
+| Deuda | `amortizacion_fraccionada` | Deuda, importe mensual, número de meses, mes de inicio |
+| Deuda | `refinanciacion` | Deuda, nuevo principal/cuota/TIN/plazo, mes de entrada en vigor |
+| Deuda | `reunificacion` | Dos o más deudas, principal/cuota/TIN/plazo del nuevo préstamo, mes |
+| Deuda | `retomar_pagos` | Deuda **suspendida**, cuota al retomar, mes |
+| Deuda | `acuerdo_quita` | Deuda, importe pactado, mes del pago, fecha de caducidad de la oferta |
+| Vida | `compra` | Nombre, importe, mes y, si se marca «la financio», principal/cuota/TIN/plazo |
+| Vida | `proyecto` | Nombre, importe objetivo, modalidad, mes objetivo (y mes de inicio si es hucha) |
+| Vida | `imprevisto` | Importe, mes y, opcionalmente, cada cuántos meses se repite |
+| Vida | `cambio_ingreso` | Titular, delta mensual (negativo si baja), desde/hasta |
+| Vida | `cambio_gasto` | Bloque, importe fijo **o** porcentaje, desde/hasta |
+
+### Decisiones deliberadas
+
+- **`traspaso` y `cambio_presupuesto` no se ofrecen.** El motor los deja fuera a propósito y
+  lo documenta: uno exigiría ampliar `canonical-engine` para admitir un ajuste puntual del
+  reparto checking/savings por mes, el otro fabricaría un gasto que nadie ha declarado.
+  Ofrecerlos daría un control que no cambia nada en la simulación, sin decirlo.
+- **`acuerdo_quita.modalidad` se fija a `pago_unico`** en vez de pedirla. El motor cierra la
+  deuda con un pago único en el mes resuelto; un desplegable con «fraccionado» prometería
+  un cálculo que hoy no existe. `vigenciaHasta` sí se pide: el contrato la exige y es un
+  dato real de la oferta, aunque el motor todavía no la use para nada.
+- **`proyecto` financiado ≡ pago único.** El esquema de `proyecto` no da plazo ni cuota
+  propios (a diferencia de `compra`), así que las dos modalidades cargan el importe de golpe
+  en el mes objetivo. Se dice en el texto de ayuda del tipo, no se esconde.
+- **El TIN se pide en % y se guarda en fracción.** El contrato quiere 0-0,60; pedir «0,065»
+  al usuario sería una trampa. La conversión vive en un único sitio (`escenarioMotorPct`).
+- **El guardarraíl sale del `<form>`.** Es del escenario entero, no de la decisión que se
+  está componiendo; estaba mezclado con los campos de la decisión y confundía ambas cosas.
+
+### Validación: la del contrato, no una paralela
+
+Cada decisión se construye completa (`id` ULID `dec_…`, `titulo`, `activa`, `orden`,
+`planificacion`, `params`) y pasa por `Schema.validateDecision` **antes** de entrar en la
+simulación. Si el contrato la rechaza no se añade nada y se muestran sus propios mensajes,
+con el `path` traducido al rótulo del campo («Nuevo TIN (%): Falta el campo obligatorio
+«nuevoTIN».»). Antes de E20-3 la interfaz generaba IDs con un formato que el propio contrato
+habría rechazado (`escenario-motor-1`) y no validaba nada: funcionaba porque
+`resolveEscenario` no valida, no porque la decisión fuera correcta.
+
+### Detalles de interfaz
+
+- **Deudas filtradas por tipo.** `retomar_pagos` solo ofrece deudas con `paymentStatus
+  === "suspended"`, porque el aplicador rechaza cualquier otra. Si no hay ninguna, el
+  desplegable lo dice en vez de ofrecer una deuda que el motor va a rechazar.
+- **Campos condicionales sin perder el foco.** «La financio» y el selector importe/porcentaje
+  muestran y ocultan campos alternando `hidden`, sin reconstruir la rejilla; el formulario
+  solo se reconstruye entero al cambiar de tipo, y nunca mientras el foco está dentro.
+  Los campos ocultos no entran en los `params` aunque conserven un valor escrito antes.
+- **Tras añadir una decisión** se vacían importes y textos pero se conservan los desplegables
+  (deuda, mes, titular): encadenar dos decisiones sobre el mismo mes es el caso normal.
+- **Los títulos ya no se recortan.** Con un solo tipo cabían en una línea; con once,
+  «Refinanciar Entidad B Tarjeta» se recortaba justo en la parte que identifica la decisión.
+  Ahora envuelven, y el título está limitado a 60 caracteres por el propio contrato.
+- **Escenarios guardados antes de E20-3** no llevan `titulo` (ni las rutas que llegan desde
+  el comparador de estrategias): se reconstruye con el mismo generador del catálogo, que solo
+  lee claves presentes también en `params`.

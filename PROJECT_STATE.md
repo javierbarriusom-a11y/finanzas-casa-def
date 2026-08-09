@@ -2,6 +2,53 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Cierre de sesión — E20-3: los once tipos de decisión en `#escenario-simular`
+
+Segundo pendiente del bloque E20-2, a petición expresa del usuario ("confirmo orden"): el
+formulario de «Qué cambias» tenía cuatro controles fijos y solo sabía construir decisiones
+de tipo `amortizacion`, aunque el motor resolvía once tipos desde E20-0 día 4. Ahora es un
+catálogo declarativo (`ESCENARIO_MOTOR_TYPES` en `app.js`): desplegable de tipo agrupado en
+«Deuda» y «Vida», y una rejilla de campos que se reconstruye según el tipo. Detalle completo,
+con la tabla de los once tipos y sus campos, en `docs/E19_SISTEMA_DISENO.md` §9.
+
+Decisiones deliberadas, documentadas en vez de fabricadas:
+- **`traspaso` y `cambio_presupuesto` no se ofrecen.** El motor los deja fuera a propósito y
+  explica por qué; ofrecerlos daría controles que no cambian nada en la simulación.
+- **`acuerdo_quita.modalidad` se fija a `pago_unico`** en vez de pedirla: el motor cierra la
+  deuda con un pago único, así que un desplegable con «fraccionado» prometería un cálculo
+  inexistente. `retomar_pagos` solo ofrece deudas realmente suspendidas, que son las únicas
+  que el aplicador acepta.
+- **El guardarraíl sale del `<form>`**: es del escenario entero, no de la decisión que se
+  está componiendo, y mezclado con los campos de la decisión confundía ambas cosas.
+
+Un defecto real corregido de paso: la interfaz generaba IDs de decisión (`escenario-motor-1`)
+que el propio contrato habría rechazado, y no validaba nada — funcionaba porque
+`resolveEscenario` no valida, no porque la decisión fuera correcta. Ahora cada decisión se
+construye completa (ULID `dec_…`, `titulo`, `planificacion`, `params`) y pasa por
+`Schema.validateDecision` antes de entrar en la simulación; si el contrato la rechaza no se
+añade nada y se muestran sus propios mensajes, con el `path` traducido al rótulo del campo.
+
+Verificado con Playwright contra la app real, con interacción real (no solo capturas): los
+once tipos se añaden y el motor los resuelve como «aplicada»; el filtro de deudas suspendidas
+devuelve 2 de 3; una decisión incompleta muestra los tres errores del contrato y no se añade;
+el guardarraíl rechaza y «ajustar automáticamente» reintenta con mes óptimo también en tipos
+que no son de deuda; la tabla de `#escenario-aplicar` y el escenario guardado muestran títulos
+correctos con tipos mezclados; el flujo «aplicar ruta» del comparador de estrategias sigue
+funcionando con los títulos reconstruidos. Sin errores de página, sin desbordamiento
+horizontal a 1280×900 ni a 390×844.
+
+Dos ajustes de presentación necesarios al crecer el formulario: el panel de controles pasa de
+340 a 400 px (a 340 la rejilla nunca daba para dos columnas y los tipos de seis campos
+obligaban a recorrer todo el formulario en vertical), y los títulos de decisión dejan de
+recortarse con puntos suspensivos — con once tipos, «Refinanciar Entidad B Tarjeta» se
+cortaba justo en la parte que identifica la decisión.
+
+403 pruebas (403 pass), `npm run verify` en verde (accesibilidad 537 IDs únicos, rendimiento
+diff 10.000 filas en 41,2 ms, build público, privacidad y smoke test correctos).
+
+Pendiente en el backlog: cuadro de mandos con impacto (3a/3b/3c), la única entrada que queda
+del catálogo de mockups y la que exige capacidad nueva, no un reskin.
+
 ## Publicación — PR #4 fusionado a `main`
 
 A petición expresa del usuario ("haz commit y push para publicar si es posible"), el
