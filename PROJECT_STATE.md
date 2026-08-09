@@ -2,6 +2,52 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Cierre de sesión — E20-1, día 1: el motor de Escenario entra en la interfaz
+
+- PR #1 (Bloque 1 E19 completo + E20-0 días 1-4) revisado y fusionado a `main`.
+  Rama de trabajo reiniciada sobre el nuevo `main` (mismo nombre,
+  `claude/repo-analysis-3dupjd`, historial limpio).
+- Arranca el Bloque 2 de verdad: `canonical-scenario-engine.js` deja de vivir
+  solo en tests y se enlaza por primera vez desde `index.html`. Antes de
+  tocar nada se revisaron las tres pantallas legacy que ya rozan el concepto
+  de "decisiones" (`#new-life-definitive`, `#new-life-simulation`,
+  `#simulator`/`decision-studio`): ninguna usa el sistema E19, ninguna llama
+  al motor nuevo, y las tres suman miles de líneas acopladas a un pipeline
+  antiguo — retocar cualquiera de entrada habría sido arriesgado y no era lo
+  pedido. Se optó, como en toda esta fase, por añadir sin tocar: pantalla
+  nueva `#escenario-motor` ("Motor de Escenario"), enlazada desde "Decidir" y
+  desde el buscador (`e17-experience.js`), con markup **100 % `.e19-*`** — la
+  primera pantalla del proyecto construida enteramente en el sistema de
+  diseño E19 desde cero, sin heredar ni una clase antigua.
+- Alcance del día 1, deliberadamente mínimo: un único tipo de decisión
+  (**amortizar deuda**) de punta a punta, para probar el circuito completo
+  con datos reales antes de sumar el resto de tipos en próximos días — el
+  mismo patrón día a día que se usó para construir el propio motor. El
+  usuario elige una deuda viva real (`debtContractSourceRows()`), importe y
+  mes real del horizonte (`canonicalEngineInput().months`); al añadirla, se
+  llama de verdad a `FinanceCanonicalScenarioEngine.resolveEscenario()` — sin
+  simular ni fingir un resultado — y se muestra si quedó **aplicada** o
+  **rechazada con el motivo real** (guardarraíl incumplido, deuda ya cerrada,
+  conflicto con otra decisión…), más el efecto en la liquidez mínima
+  (antes/después, con la cifra exacta que devuelve el motor).
+- Guardarraíl opcional en el propio formulario: si se indica un saldo mínimo,
+  se pasa tal cual a `context.guardarrailes.saldoMinimoAbsoluto` y las
+  decisiones que lo rompan se rechazan de verdad, visible en la tabla.
+- Simplificación explícita de este día: la lista de decisiones vive solo en
+  memoria de la pestaña del navegador — no persiste todavía entre sesiones.
+  Se documenta aquí en vez de fingir que sí.
+- Verificado con Playwright contra la app real servida localmente: opciones
+  de deuda y mes cargadas con datos reales, alta de una decisión, resultado
+  "Aplicada" devuelto por el motor real, KPI de liquidez mínima calculado, y
+  retirada de la decisión limpia el estado. Sin peticiones de red fallidas
+  para los dos scripts nuevos (`canonical-scenario-schema.js`,
+  `canonical-scenario-engine.js`).
+- 403 pruebas (403 pass, 0 `test.todo`), `npm run verify` en verde.
+- Pendiente para próximos días: el resto de tipos de decisión soportados por
+  el motor (refinanciar, comprar, imprevisto, proyecto…), y decidir si esta
+  pantalla se queda como está o se fusiona más adelante con alguna de las
+  tres legacy.
+
 ## Decisión de publicación: un único sitio en desarrollo
 
 A petición del usuario se creó una copia fija del repositorio en

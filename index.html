@@ -53,6 +53,7 @@
             <div class="advanced-nav-links">
               <p class="advanced-nav-label">Decidir</p>
               <a href="#new-life-simulation" data-e17-group="analysis">Escenarios de vida y deuda</a>
+              <a href="#escenario-motor" data-e17-group="analysis">Motor de Escenario (nuevo)</a>
               <a href="#debt-roadmap" data-e17-group="analysis">Plan de deuda</a>
               <a href="#executive-advisor" data-e17-group="assistants">Asesor ejecutivo</a>
               <a href="#virtual-advisor" data-e17-group="assistants">Asesor virtual</a>
@@ -804,6 +805,53 @@
                 <table class="life-def-table" id="lifeDefCashflow"></table>
               </div>
             </article>
+          </section>
+
+          <section class="e19-escenario-motor view-section" id="escenario-motor">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow">Decidir · nuevo</p>
+                <h2 class="e19-heading">Motor de Escenario</h2>
+                <p class="e19-subtitle">Primera pieza del motor unificado (E20) conectada a la interfaz. Por ahora solo amortizar deuda — el resto de tipos de decisión se añaden en próximas fases. Cada decisión se resuelve de verdad: aplicada o rechazada con motivo, nunca un número inventado.</p>
+              </div>
+            </div>
+
+            <article class="e19-card" style="padding: 18px; margin-bottom: 16px;">
+              <form id="escenarioMotorForm">
+                <div class="escenario-motor-form-grid">
+                  <label>
+                    <span>Deuda</span>
+                    <select id="escenarioMotorDebt"></select>
+                  </label>
+                  <label>
+                    <span>Importe a amortizar</span>
+                    <input id="escenarioMotorAmount" type="number" min="0.01" step="0.01" placeholder="€" required />
+                  </label>
+                  <label>
+                    <span>Mes</span>
+                    <select id="escenarioMotorMonth"></select>
+                  </label>
+                  <label>
+                    <span>Saldo mínimo a respetar (opcional)</span>
+                    <input id="escenarioMotorGuardrail" type="number" min="0" step="0.01" placeholder="€, vacío = sin guardarraíl" />
+                  </label>
+                </div>
+                <button type="submit" class="e19-btn e19-btn-primary">Añadir decisión</button>
+              </form>
+            </article>
+
+            <article class="e19-card" style="padding: 18px; margin-bottom: 16px;">
+              <h3 class="e19-heading" style="font-size: var(--e19-text-lg);">Decisiones del escenario</h3>
+              <p class="e19-subtitle" id="escenarioMotorEmpty">Todavía no has añadido ninguna decisión.</p>
+              <div class="table-wrap">
+                <table class="e19-table">
+                  <thead><tr><th>Deuda</th><th>Importe</th><th>Mes</th><th>Resultado</th><th></th></tr></thead>
+                  <tbody id="escenarioMotorDecisionsBody"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <div class="home-kpi-grid" id="escenarioMotorKpis"></div>
           </section>
 
           <section class="visual-detail view-section" id="visual-detail">
@@ -2507,6 +2555,8 @@
     <script src="canonical-e13-scenarios.js?v=20260802e13b1"></script>
     <script src="canonical-daily-engine.js?v=20260714a"></script>
     <script src="canonical-debt-contracts.js?v=20260714b"></script>
+    <script src="canonical-scenario-schema.js?v=20260809e20b1"></script>
+    <script src="canonical-scenario-engine.js?v=20260809e20b1"></script>
     <script src="canonical-e14-debt-adapter.js?v=20260802e14a1"></script>
     <script src="legacy-debt-roadmap-engine.js?v=20260805e14parity1"></script>
     <script src="canonical-e14-operations.js?v=20260805e14b1"></script>

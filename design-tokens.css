@@ -753,3 +753,34 @@
 .e19-prevision .prevision-table td[data-prevision-month-key]:hover {
   background: var(--e19-accent-soft);
 }
+
+/* -------------------------------------------------------------------------------------------- */
+/* Motor de Escenario (E20-1, día 1) — primera pantalla nueva construida enteramente en e19-,     */
+/* sin markup heredado. Reutiliza .e19-card/.e19-btn/.e19-table/.e19-badge/.e19-kpi tal cual;     */
+/* esto solo cubre el grid propio del formulario, que no tenía equivalente genérico ya definido.  */
+/* -------------------------------------------------------------------------------------------- */
+
+.e19-escenario-motor .escenario-motor-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.e19-escenario-motor .escenario-motor-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+}
+
+.e19-escenario-motor .escenario-motor-form-grid input,
+.e19-escenario-motor .escenario-motor-form-grid select {
+  border: 1px solid var(--e19-border-strong);
+  border-radius: var(--e19-radius-sm);
+  padding: 8px 10px;
+  font: 400 var(--e19-text-base) / 1.3 var(--e19-font-sans);
+  color: var(--e19-ink);
+  background: var(--e19-surface);
+}

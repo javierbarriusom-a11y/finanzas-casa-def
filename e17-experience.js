@@ -11,6 +11,7 @@
     { target: "forecast", label: "Prever", group: "analysis", keywords: "forecast proyeccion liquidez futuro" },
     { target: "new-life-definitive", label: "Decidir", group: "main", keywords: "decisiones deuda coche proyectos traspasos" },
     { target: "new-life-simulation", label: "Escenarios de vida y deuda", group: "analysis", keywords: "escenario simulacion imprevisto favorable tension" },
+    { target: "escenario-motor", label: "Motor de Escenario (nuevo)", group: "analysis", keywords: "escenario motor decision amortizar deuda nuevo e20" },
     { target: "debt-roadmap", label: "Plan de deuda", group: "analysis", keywords: "deuda negociar ofertas cuota refinanciacion" },
     { target: "savings-agent", label: "Objetivos y ahorro", group: "analysis", keywords: "objetivos huchas aportaciones ahorro" },
     { target: "movements", label: "Movimientos", group: "data", keywords: "movimientos banco categorias buscar" },
