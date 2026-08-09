@@ -2,6 +2,19 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Publicación — PR #2 fusionado a `main`
+
+A petición expresa del usuario ("confirmo fusión, publica todo lo que se pueda publicar"),
+el PR #2 (E20-1 día 1 + rediseño 1e/2d/2e descrito más abajo) se fusiona a `main` mediante
+squash (`191ba2f`). El motor de Escenario deja de ser código sin usar y pasa a estar
+enlazado desde `index.html` en el sitio público: las tres pantallas nuevas
+(`#escenario-simular`, `#escenario-aplicar`, `#escenario-guardados`) y la documentación de
+mockups (`docs/E19_SISTEMA_DISENO.md`, `docs/mockups/`) quedan publicadas.
+
+Validación de cierre repetida sobre el `main` ya fusionado: 403/403 pruebas, accesibilidad,
+rendimiento, build público, privacidad y smoke test en verde. Árbol de trabajo limpio, sin
+cambios pendientes de commitear más allá de esta propia entrada de estado.
+
 ## Cierre de sesión — E20-1: rediseño de Escenario según los mockups reales (1e/2d/2e)
 
 A petición expresa del usuario, la pantalla única `#escenario-motor` del día 1 se
