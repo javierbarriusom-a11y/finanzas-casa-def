@@ -2,6 +2,45 @@
 
 Fecha de revisión: 9 de agosto de 2026.
 
+## Documentación — el rediseño a seis vistas entra en el repositorio
+
+El usuario aportó una ampliación del documento de mockups y pidió incluir los visuales en la
+documentación del proyecto. Lo añadido a `docs/mockups/`:
+
+- **Dos turnos nuevos en el canvas** (el fichero pasa de tres turnos a cinco): turno 4, el
+  rediseño completo de las 22 pantallas actuales a seis vistas; turno 5, especificaciones
+  escritas de interacción más dos prototipos vivos (pie de impacto e importación de extracto).
+- **`finanzas-casa-app.dc.html`**: prototipo navegable de las seis vistas con las
+  interacciones reales. La entrega lo señala como la referencia principal.
+- **`HANDOFF_REDISENO_6_VISTAS.md`**: documento de entrega con propósito de cada vista,
+  comportamiento, gestión de estado, tokens y medidas exactas.
+- **17 capturas nuevas** en `docs/mockups/screens/` (`4a`-`4f`, `5a`-`5d`, las seis vistas del
+  prototipo y el estado con el pie de impacto desplegado tras editar una celda, que no se ve
+  en una captura de la vista en reposo).
+
+Las capturas hubo que generarlas aquí: el visor de canvas carga React desde `unpkg.com` y la
+tipografía desde Google Fonts, y esta máquina no llega a ninguno de los dos. Se resolvió
+sirviendo los bundles UMD de React desde el registro de npm (sí accesible) mediante
+enrutado de peticiones en Playwright, sin modificar los ficheros del repositorio. Queda
+anotado en la documentación que los `.dc.html` necesitan red y que las capturas son la copia
+legible sin ella.
+
+Documentado en `docs/E19_SISTEMA_DISENO.md`: §1 reescrita con el inventario del material,
+§4 ampliada con los turnos 4 y 5, y una §10 nueva. Lo importante de §10, dicho sin adornos:
+**el rediseño choca de frente con la arquitectura actual**. Cada mockup migrado hasta ahora
+se añadió como pantalla nueva junto a la heredada, nunca sustituyéndola, y hoy conviven
+`#conciliar` con `#reconciliation`, `#deuda-ruta` con `#debt-roadmap`, `#escenario-simular`
+con `#new-life-simulation`. El rediseño es la operación inversa: fundir los pares y retirar
+los heredados. Eso es una decisión de producto sobre retirar pantallas en uso, no algo que
+se resuelva escribiendo código, así que queda documentado y sin migrar.
+
+Sí es aprovechable ya, sin esa decisión: el turno 5 especifica de verdad el pendiente
+3a/3b/3c del backlog (disparadores, debounce, contenido exacto del pie de impacto,
+comportamiento con mes cerrado y al descartar), que hasta ahora eran tres capturas estáticas
+sin especificación. Es la mejor entrada disponible para esa entrega.
+
+403 pruebas (403 pass), `npm run verify` en verde.
+
 ## Cierre de sesión — E20-3: los once tipos de decisión en `#escenario-simular`
 
 Segundo pendiente del bloque E20-2, a petición expresa del usuario ("confirmo orden"): el
