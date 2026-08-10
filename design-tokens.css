@@ -1794,3 +1794,255 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* -------------------------------------------------------------------------------------------- */
+/* «Registrar el mes» (E20-4, mockup 2a) — todo bajo .e19-registrar-mes para no tocar la pantalla */
+/* heredada `#update-data`, que sigue usando .detail-table y su acordeón por bloques.             */
+/* -------------------------------------------------------------------------------------------- */
+
+.e19-registrar-mes .registrar-mes-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.e19-registrar-mes .registrar-mes-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.e19-registrar-mes .registrar-mes-card {
+  padding: 16px 18px 14px;
+}
+
+.e19-registrar-mes .registrar-mes-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+/* Segmentado de filtros: un solo grupo con el activo en blanco sobre fondo hundido. */
+.e19-registrar-mes .registrar-mes-filters {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--e19-surface-sunken);
+  border-radius: var(--e19-radius-pill);
+}
+
+.e19-registrar-mes .registrar-mes-filter {
+  border: none;
+  background: transparent;
+  border-radius: var(--e19-radius-pill);
+  padding: 6px 14px;
+  font: 600 var(--e19-text-sm) / 1 var(--e19-font-sans);
+  color: var(--e19-muted);
+  cursor: pointer;
+}
+
+.e19-registrar-mes .registrar-mes-filter.is-active {
+  background: var(--e19-surface);
+  color: var(--e19-heading);
+  box-shadow: var(--e19-shadow-card);
+}
+
+.e19-registrar-mes .registrar-mes-filter:focus-visible {
+  outline: 2px solid var(--e19-accent);
+  outline-offset: 2px;
+}
+
+.e19-registrar-mes .registrar-mes-table {
+  min-width: 720px;
+}
+
+/* Bloque y concepto identifican la fila: van a la izquierda, aunque .e19-table alinee a la
+   derecha todo lo que no sea la primera columna (pensada para tablas de solo cifras). */
+.e19-registrar-mes .registrar-mes-table thead th:nth-child(2),
+.e19-registrar-mes .registrar-mes-table td.registrar-mes-block,
+.e19-registrar-mes .registrar-mes-table td.registrar-mes-concept {
+  text-align: left;
+}
+
+.e19-registrar-mes .registrar-mes-table .registrar-mes-block {
+  color: var(--e19-muted);
+  font-size: var(--e19-text-sm);
+}
+
+.e19-registrar-mes .registrar-mes-table .registrar-mes-concept {
+  font-weight: 600;
+  color: var(--e19-heading);
+}
+
+.e19-registrar-mes .registrar-mes-table .registrar-mes-concept small {
+  font-weight: 400;
+  color: var(--e19-faint);
+}
+
+.e19-registrar-mes .registrar-mes-table input[type="number"] {
+  width: 108px;
+  text-align: right;
+  padding: 6px 10px;
+  border: 1px solid var(--e19-border-strong);
+  border-radius: var(--e19-radius-sm);
+  background: var(--e19-surface);
+  font: 600 var(--e19-text-base) / 1.2 var(--e19-font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--e19-ink);
+}
+
+.e19-registrar-mes .registrar-mes-table input[type="number"]:focus-visible {
+  outline: none;
+  border-color: var(--e19-accent);
+  box-shadow: 0 0 0 3px var(--e19-accent-soft);
+}
+
+.e19-registrar-mes .registrar-mes-table input[type="number"]:disabled {
+  background: var(--e19-surface-sunken);
+  color: var(--e19-faint);
+}
+
+/* Fila que va a peor: se tiñe entera para que el ojo la encuentre sin leer la columna. */
+.e19-registrar-mes .registrar-mes-table tr.registrar-mes-row-off td {
+  background: var(--e19-warning-soft);
+}
+
+/* .positive/.negative de styles.css pierden contra `.e19-table tbody td`, que fija el color. */
+.e19-registrar-mes .registrar-mes-table td.positive {
+  color: var(--e19-success);
+  font-weight: 600;
+}
+
+.e19-registrar-mes .registrar-mes-table td.negative {
+  color: var(--e19-danger);
+  font-weight: 600;
+}
+
+.e19-registrar-mes .registrar-mes-table tr.registrar-mes-row-custom td:first-child {
+  box-shadow: inset 3px 0 0 var(--e19-accent);
+}
+
+.e19-registrar-mes .registrar-mes-table .registrar-mes-row-actions {
+  width: 40px;
+}
+
+.e19-registrar-mes .registrar-mes-row-remove {
+  border: none;
+  background: transparent;
+  color: var(--e19-faint);
+  font-size: var(--e19-text-lg);
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--e19-radius-sm);
+}
+
+.e19-registrar-mes .registrar-mes-row-remove:hover {
+  color: var(--e19-danger);
+  background: var(--e19-danger-soft);
+}
+
+.e19-registrar-mes .registrar-mes-empty {
+  text-align: center;
+  color: var(--e19-muted);
+  font-size: var(--e19-text-sm);
+  padding: 20px 14px;
+}
+
+.e19-registrar-mes .registrar-mes-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  margin-top: 10px;
+  border-top: 1px solid var(--e19-border);
+}
+
+.e19-registrar-mes .registrar-mes-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: 600 var(--e19-text-sm) / 1.2 var(--e19-font-sans);
+  color: var(--e19-accent);
+  cursor: pointer;
+}
+
+.e19-registrar-mes .registrar-mes-link:hover {
+  color: var(--e19-accent-hover);
+  text-decoration: underline;
+}
+
+.e19-registrar-mes .registrar-mes-copy-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+}
+
+.e19-registrar-mes .registrar-mes-add {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 14px;
+  background: var(--e19-surface-soft);
+  border: 1px solid var(--e19-border);
+  border-radius: var(--e19-radius-md);
+}
+
+.e19-registrar-mes .registrar-mes-add label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font: 600 var(--e19-text-xs) / 1.2 var(--e19-font-sans);
+  color: var(--e19-muted);
+}
+
+.e19-registrar-mes .registrar-mes-add input,
+.e19-registrar-mes .registrar-mes-add select {
+  min-width: 140px;
+  padding: 7px 10px;
+  border: 1px solid var(--e19-border-strong);
+  border-radius: var(--e19-radius-sm);
+  background: var(--e19-surface);
+  font: 400 var(--e19-text-base) / 1.2 var(--e19-font-sans);
+  color: var(--e19-ink);
+}
+
+.e19-registrar-mes .registrar-mes-add-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Barra de progreso de «Completado»: el ancho lo fija el render con un style inline. */
+.e19-registrar-mes .registrar-mes-progress {
+  display: block;
+  height: 6px;
+  border-radius: var(--e19-radius-pill);
+  background: var(--e19-surface-sunken);
+  overflow: hidden;
+}
+
+.e19-registrar-mes .registrar-mes-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--e19-accent);
+}
+
+@media (max-width: 860px) {
+  .e19-registrar-mes .registrar-mes-card-head,
+  .e19-registrar-mes .registrar-mes-card-foot {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

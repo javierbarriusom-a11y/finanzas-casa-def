@@ -268,6 +268,10 @@ const viewTitles = {
     eyebrow: "Actualización del mes",
     title: "Registra ingresos y gastos según van ocurriendo",
   },
+  "registrar-mes": {
+    eyebrow: "Actualizar",
+    title: "Registra el mes partida a partida y mira cómo va",
+  },
   "update-hub": {
     eyebrow: "Actualizar mis datos",
     title: "Pon al día saldos, movimientos, reales o previsiones",
@@ -16421,6 +16425,468 @@ function renderMonthlyDetails() {
   renderExpenseDetails();
 }
 
+/* --------------------------------------------------------------------------------------------- */
+/* «Registrar el mes» (mockup 2a, E20-4)                                                           */
+/*                                                                                                 */
+/* Pantalla nueva junto a `#update-data`, no en su lugar: la heredada conserva el acordeón por      */
+/* bloques, el editor de conceptos y el borrado de cualquier línea. Aquí la lista es plana —una     */
+/* fila por partida— porque ese es justamente el punto del mockup: ver de un vistazo qué queda por  */
+/* registrar. Ambas comparten almacén (`incomeActuals`/`expenseActuals`), así que un real escrito   */
+/* en una pantalla aparece en la otra sin migrar ningún dato.                                       */
+/* --------------------------------------------------------------------------------------------- */
+
+const REGISTRAR_MES_KINDS = [
+  { kind: "expense", label: "Gastos" },
+  { kind: "income", label: "Ingresos" },
+];
+const REGISTRAR_MES_FILTER_LABELS = { "sin-real": "Sin real", desviacion: "Con desviación", todo: "Todo" };
+const registrarMesFilters = { income: "sin-real", expense: "sin-real" };
+const registrarMesAddOpen = { income: false, expense: false };
+const registrarMesCopyPending = { income: false, expense: false };
+let registrarMesLastSaveAt = null;
+// Guardar un real no puede reconstruir la tabla: el `change` salta durante el blur, antes de que
+// el foco aterrice en la casilla siguiente, así que reescribir el HTML ahí deja el foco en el
+// aire y rompe el tabulado. En ese camino solo se refrescan las celdas derivadas.
+let registrarMesCellsOnly = false;
+
+function registrarMesSelectedMonth() {
+  const months = baseData?.monthlyPlanning?.months;
+  if (!months?.length) return null;
+  const raw = Number(qs("registrarMesMonth")?.value || 0);
+  const index = Math.min(Math.max(Number.isFinite(raw) ? raw : 0, 0), months.length - 1);
+  return { ...months[index], index };
+}
+
+function registrarMesPreviousMonth(month) {
+  const months = baseData?.monthlyPlanning?.months || [];
+  if (!month || month.index <= 0) return null;
+  return { ...months[month.index - 1], index: month.index - 1 };
+}
+
+function registrarMesMonthName(key) {
+  const date = dateFromMonthKey(key);
+  if (!date) return String(key || "");
+  const name = date.toLocaleDateString("es-ES", { month: "long" });
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function registrarMesLongMonth(key) {
+  const date = dateFromMonthKey(key);
+  return date ? date.toLocaleDateString("es-ES", { month: "long", year: "numeric" }) : String(key || "");
+}
+
+function registrarMesSignedMoney(value) {
+  const amount = Number(value || 0);
+  return `${amount > 0 ? "+" : ""}${money(amount, true)}`;
+}
+
+function registrarMesIsOff(entry) {
+  return Boolean(entry.hasActual) && Math.abs(Number(entry.variance || 0)) >= 0.005;
+}
+
+// El filtro «Con desviación» cuenta cualquier diferencia; el tinte de la fila se reserva a las
+// que van a peor (más gasto o menos ingreso), para no pintar de aviso una buena noticia.
+function registrarMesIsBad(entry) {
+  return registrarMesIsOff(entry) && varianceClassForKind(entry.kind, entry.variance) === "negative";
+}
+
+function registrarMesCollect(month) {
+  const result = { income: [], expense: [] };
+  if (!month) return result;
+  ["income", "expense"].forEach((kind) => {
+    planningSectionsForMonth(kind, month).forEach((section) => {
+      section.rows.forEach((row) => {
+        const info = actualAwareInfo(row, month);
+        const planned = Number(info.planned || 0);
+        const actual = info.hasActual ? Number(info.actual || 0) : null;
+        result[kind].push({
+          kind,
+          row,
+          sectionName: section.name,
+          label: displayLabelForRow(row),
+          planned,
+          actual,
+          used: Number(info.value || 0),
+          hasActual: Boolean(info.hasActual),
+          variance: info.hasActual ? actual - planned : null,
+          key: actualKeyForRow(row, month),
+          deleteKey: deleteKeyForRow(row, month),
+        });
+      });
+    });
+  });
+  return result;
+}
+
+function registrarMesTotals(entries) {
+  const sum = (list, field) => list.reduce((total, item) => total + Number(item[field] || 0), 0);
+  const captured = (list) => list.filter((item) => item.hasActual);
+  return {
+    incomeUsed: sum(entries.income, "used"),
+    expenseUsed: sum(entries.expense, "used"),
+    incomePlanned: sum(entries.income, "planned"),
+    expensePlanned: sum(entries.expense, "planned"),
+    incomeVariance: sum(captured(entries.income), "variance"),
+    expenseVariance: sum(captured(entries.expense), "variance"),
+    lines: entries.income.length + entries.expense.length,
+    captured: captured(entries.income).length + captured(entries.expense).length,
+  };
+}
+
+function registrarMesMatchesFilter(entry, filter) {
+  if (filter === "sin-real") return !entry.hasActual;
+  if (filter === "desviacion") return registrarMesIsOff(entry);
+  return true;
+}
+
+function registrarMesFilterCounts(list) {
+  return {
+    "sin-real": list.filter((entry) => registrarMesMatchesFilter(entry, "sin-real")).length,
+    desviacion: list.filter((entry) => registrarMesMatchesFilter(entry, "desviacion")).length,
+    todo: list.length,
+  };
+}
+
+function registrarMesCopyCandidates(kind, month) {
+  const previous = registrarMesPreviousMonth(month);
+  if (!previous) return [];
+  const actuals = actualsForKind(kind);
+  const result = [];
+  planningSectionsForMonth(kind, month).forEach((section) => {
+    section.rows.forEach((row) => {
+      if (actualAwareInfo(row, month).hasActual) return;
+      const stored = actuals[`${row.id}|${previous.key}`];
+      if (stored === undefined || stored === "") return;
+      result.push({ key: actualKeyForRow(row, month), value: Number(stored) });
+    });
+  });
+  return result;
+}
+
+function registrarMesEmptyMessage(filter, total) {
+  if (!total) return "Este mes no tiene partidas de este tipo.";
+  if (filter === "sin-real") return "Todas las partidas tienen un real registrado. Pulsa «Todo» para verlas.";
+  if (filter === "desviacion") return "Ninguna partida con real se aparta del previsto.";
+  return "Este mes no tiene partidas de este tipo.";
+}
+
+function registrarMesRowHtml(entry, monthClosed) {
+  const classes = [
+    entry.row.custom ? "registrar-mes-row-custom" : "",
+    registrarMesIsBad(entry) ? "registrar-mes-row-off" : "",
+  ].filter(Boolean);
+  return `<tr data-registrar-mes-key="${escapeHtml(entry.key)}"${classes.length ? ` class="${classes.join(" ")}"` : ""}>
+    <td class="registrar-mes-block">${escapeHtml(entry.sectionName)}</td>
+    <td class="registrar-mes-concept">${escapeHtml(entry.label)}${entry.row.custom ? " <small>añadida aquí</small>" : ""}</td>
+    <td data-registrar-mes-cell="planned">${money(entry.planned, true)}</td>
+    <td><input type="number" step="0.01" inputmode="decimal" data-registrar-mes-actual="${escapeHtml(entry.key)}" data-registrar-mes-kind="${escapeHtml(entry.kind)}" aria-label="Real de ${escapeHtml(entry.label)}" value="${entry.hasActual ? entry.actual : ""}" placeholder="sin real"${monthClosed ? " disabled" : ""} /></td>
+    <td data-registrar-mes-cell="used"><strong>${money(entry.used, true)}</strong></td>
+    <td data-registrar-mes-cell="variance" class="${varianceClassForKind(entry.kind, entry.hasActual ? entry.variance : "")}">${entry.hasActual ? registrarMesSignedMoney(entry.variance) : "—"}</td>
+    <td class="registrar-mes-row-actions">${
+      entry.row.custom && !monthClosed
+        ? `<button type="button" class="registrar-mes-row-remove" data-registrar-mes-delete="${escapeHtml(entry.deleteKey)}" aria-label="Quitar ${escapeHtml(entry.label)} de este mes">×</button>`
+        : ""
+    }</td>
+  </tr>`;
+}
+
+function registrarMesAddFormHtml(kind, month) {
+  if (!registrarMesAddOpen[kind]) return "";
+  const options = baseData.monthlyPlanning.sections
+    .filter((section) => section.kind === kind)
+    .map((section) => `<option value="${escapeHtml(section.name)}">${escapeHtml(section.name)}</option>`)
+    .join("");
+  return `<form class="registrar-mes-add" data-registrar-mes-add-form="${kind}">
+    <label><span>Bloque</span><select data-registrar-mes-add-field="section">${options}</select></label>
+    <label><span>Concepto</span><input type="text" data-registrar-mes-add-field="label" placeholder="Ej.: Seguro del coche" /></label>
+    <label><span>Previsto</span><input type="number" step="0.01" data-registrar-mes-add-field="planned" placeholder="0,00" /></label>
+    <label><span>Real</span><input type="number" step="0.01" data-registrar-mes-add-field="actual" placeholder="Opcional" /></label>
+    <div class="registrar-mes-add-actions">
+      <button type="submit" class="e19-btn e19-btn-primary">Añadir a ${escapeHtml(month.label)}</button>
+      <button type="button" class="e19-btn e19-btn-secondary" data-registrar-mes-add-cancel="${kind}">Cancelar</button>
+    </div>
+  </form>`;
+}
+
+function registrarMesCopyHtml(kind, month) {
+  const previous = registrarMesPreviousMonth(month);
+  if (!previous) return `<span class="e19-kpi-meta">No hay un mes anterior en el plan.</span>`;
+  if (!registrarMesCopyPending[kind]) {
+    return `<button type="button" class="registrar-mes-link" data-registrar-mes-copy="${kind}">Copiar reales del mes anterior</button>`;
+  }
+  const candidates = registrarMesCopyCandidates(kind, month);
+  return `<span class="registrar-mes-copy-confirm">
+    <span>Se copiarán ${candidates.length} real(es) de ${escapeHtml(previous.label)} a las partidas que aún no tienen uno.</span>
+    <button type="button" class="e19-btn e19-btn-primary" data-registrar-mes-copy-confirm="${kind}">Confirmar copia</button>
+    <button type="button" class="e19-btn e19-btn-secondary" data-registrar-mes-copy-cancel="${kind}">Cancelar</button>
+  </span>`;
+}
+
+function registrarMesCardHtml(meta, list, month, monthClosed) {
+  const kind = meta.kind;
+  const filter = registrarMesFilters[kind];
+  const counts = registrarMesFilterCounts(list);
+  const visible = list.filter((entry) => registrarMesMatchesFilter(entry, filter));
+  const chips = ["sin-real", "desviacion", "todo"]
+    .map(
+      (value) =>
+        `<button type="button" class="registrar-mes-filter${filter === value ? " is-active" : ""}" data-registrar-mes-filter="${kind}:${value}" aria-pressed="${filter === value ? "true" : "false"}">${REGISTRAR_MES_FILTER_LABELS[value]} (${counts[value]})</button>`,
+    )
+    .join("");
+  const body = visible.length
+    ? visible.map((entry) => registrarMesRowHtml(entry, monthClosed)).join("")
+    : `<tr><td colspan="7" class="registrar-mes-empty">${escapeHtml(registrarMesEmptyMessage(filter, list.length))}</td></tr>`;
+  const hasSections = baseData.monthlyPlanning.sections.some((section) => section.kind === kind);
+  const footer = monthClosed
+    ? `<p class="e19-kpi-note">El mes está cerrado: los reales quedan congelados tal y como se cerraron.</p>`
+    : `<div class="registrar-mes-card-foot">
+        ${hasSections ? `<button type="button" class="e19-btn e19-btn-secondary" data-registrar-mes-add="${kind}">+ Añadir partida</button>` : ""}
+        <p class="e19-kpi-note">Vaciar un real recupera el previsto. Escribir 0 significa «ocurrió por cero».</p>
+        ${registrarMesCopyHtml(kind, month)}
+      </div>
+      ${registrarMesAddFormHtml(kind, month)}`;
+  return `<article class="e19-card registrar-mes-card">
+    <div class="registrar-mes-card-head">
+      <h3 class="escenario-motor-panel-title">${escapeHtml(meta.label)}</h3>
+      <div class="registrar-mes-filters" role="group" aria-label="Filtrar partidas de ${escapeHtml(meta.label.toLowerCase())}">${chips}</div>
+    </div>
+    <div class="table-wrap">
+      <table class="e19-table registrar-mes-table">
+        <thead>
+          <tr>
+            <th>Bloque</th>
+            <th>Concepto</th>
+            <th>Previsto</th>
+            <th>Real</th>
+            <th>Usado</th>
+            <th>Desviación</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    ${footer}
+  </article>`;
+}
+
+// Actualiza solo las celdas derivadas (previsto, usado, desviación) y los contadores de los
+// filtros. Se usa cuando el foco sigue dentro de la tabla: reconstruirla entera ahí robaría el
+// foco al tabular de una casilla a la siguiente.
+function registrarMesRefreshCells(entries) {
+  const container = qs("registrarMesTables");
+  if (!container) return;
+  const byKey = new Map();
+  [...entries.income, ...entries.expense].forEach((entry) => byKey.set(entry.key, entry));
+  container.querySelectorAll("tr[data-registrar-mes-key]").forEach((row) => {
+    const entry = byKey.get(row.dataset.registrarMesKey);
+    if (!entry) return;
+    const planned = row.querySelector('[data-registrar-mes-cell="planned"]');
+    if (planned) planned.textContent = money(entry.planned, true);
+    const used = row.querySelector('[data-registrar-mes-cell="used"]');
+    if (used) used.innerHTML = `<strong>${money(entry.used, true)}</strong>`;
+    const variance = row.querySelector('[data-registrar-mes-cell="variance"]');
+    if (variance) {
+      variance.textContent = entry.hasActual ? registrarMesSignedMoney(entry.variance) : "—";
+      variance.className = varianceClassForKind(entry.kind, entry.hasActual ? entry.variance : "");
+    }
+    row.classList.toggle("registrar-mes-row-off", registrarMesIsBad(entry));
+  });
+  REGISTRAR_MES_KINDS.forEach((meta) => {
+    const counts = registrarMesFilterCounts(entries[meta.kind]);
+    container.querySelectorAll(`[data-registrar-mes-filter^="${meta.kind}:"]`).forEach((button) => {
+      const value = String(button.dataset.registrarMesFilter).split(":")[1];
+      button.textContent = `${REGISTRAR_MES_FILTER_LABELS[value]} (${counts[value]})`;
+    });
+  });
+}
+
+function renderRegistrarMes() {
+  if (!qs("registrar-mes") || !baseData?.monthlyPlanning?.months?.length) return;
+  const month = registrarMesSelectedMonth();
+  if (!month) return;
+  const monthClosed = isClosedMonthKey(month.key);
+  const entries = registrarMesCollect(month);
+  const totals = registrarMesTotals(entries);
+
+  const eyebrow = qs("registrarMesEyebrow");
+  if (eyebrow) eyebrow.textContent = `Actualizar · ${registrarMesLongMonth(month.key)}`;
+
+  const netVariance = totals.expenseVariance - totals.incomeVariance;
+  const title = qs("registrarMesTitle");
+  if (title) {
+    const name = registrarMesMonthName(month.key);
+    title.textContent = !totals.captured
+      ? `${name} todavía no tiene ningún real registrado`
+      : Math.abs(netVariance) < 0.005
+        ? `${name} va clavado a lo previsto`
+        : `${name} va ${money(Math.abs(netVariance), true)} ${netVariance > 0 ? "por encima" : "por debajo"} de lo previsto`;
+  }
+
+  const pending = totals.lines - totals.captured;
+  const subtitle = qs("registrarMesSubtitle");
+  if (subtitle) {
+    subtitle.textContent = monthClosed
+      ? "El mes está cerrado: los importes quedan congelados y no se pueden editar aquí."
+      : `${pending ? `Quedan ${pending} partida(s) sin real.` : "Todas las partidas tienen real."} Todo lo que escribas se guarda al salir de la casilla.`;
+  }
+
+  const saved = qs("registrarMesSaved");
+  if (saved) {
+    saved.textContent = registrarMesLastSaveAt
+      ? `Guardado a las ${registrarMesLastSaveAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`
+      : "Sin cambios en esta sesión";
+    saved.className = registrarMesLastSaveAt ? "e19-badge e19-badge-success" : "e19-badge e19-badge-neutral";
+  }
+
+  const kpis = qs("registrarMesKpis");
+  if (kpis) {
+    const margin = totals.incomeUsed - totals.expenseUsed;
+    const plannedMargin = totals.incomePlanned - totals.expensePlanned;
+    const progress = totals.lines ? Math.round((totals.captured / totals.lines) * 100) : 0;
+    const delta = (variance, goodWhenPositive) =>
+      totals.captured
+        ? `<span class="e19-kpi-delta ${(goodWhenPositive ? variance >= 0 : variance <= 0) ? "is-up" : "is-down"}">${registrarMesSignedMoney(variance)} frente al previsto</span>`
+        : `<span class="e19-kpi-meta">Sin reales todavía</span>`;
+    kpis.innerHTML = [
+      `<div class="e19-kpi"><span class="e19-kpi-label">Ingresos · usado</span><span class="e19-kpi-value">${money(totals.incomeUsed, true)}</span>${delta(totals.incomeVariance, true)}</div>`,
+      `<div class="e19-kpi"><span class="e19-kpi-label">Gastos · usado</span><span class="e19-kpi-value">${money(totals.expenseUsed, true)}</span>${delta(totals.expenseVariance, false)}</div>`,
+      `<div class="e19-kpi${margin < 0 ? " is-danger" : ""}"><span class="e19-kpi-label">Margen del mes</span><span class="e19-kpi-value">${money(margin, true)}</span><span class="e19-kpi-meta">previsto ${money(plannedMargin, true)}</span></div>`,
+      `<div class="e19-kpi"><span class="e19-kpi-label">Completado</span><span class="e19-kpi-value">${totals.captured}/${totals.lines}</span><span class="registrar-mes-progress" role="img" aria-label="${progress}% de las partidas tienen real"><span style="width:${progress}%"></span></span></div>`,
+    ].join("");
+  }
+
+  const container = qs("registrarMesTables");
+  if (!container) return;
+  if (registrarMesCellsOnly && container.dataset.monthKey === month.key) {
+    registrarMesRefreshCells(entries);
+    return;
+  }
+  container.innerHTML = REGISTRAR_MES_KINDS.map((meta) => registrarMesCardHtml(meta, entries[meta.kind], month, monthClosed)).join("");
+  container.dataset.monthKey = month.key;
+}
+
+function handleRegistrarMesActualChange(input) {
+  const month = registrarMesSelectedMonth();
+  if (!month || isClosedMonthKey(month.key)) return;
+  const kind = input.dataset.registrarMesKind;
+  const key = input.dataset.registrarMesActual;
+  if (!kind || !key) return;
+  const actuals = actualsForKind(kind);
+  const removed = input.value === "";
+  if (removed) delete actuals[key];
+  else actuals[key] = Number(input.value);
+  saveActualsForKind(kind)();
+  registrarMesLastSaveAt = new Date();
+  announceStatus(
+    removed
+      ? `Real eliminado en ${month.label}: la partida vuelve a usar el importe previsto.`
+      : `Real guardado en ${month.label}.`,
+  );
+  registrarMesCellsOnly = true;
+  try {
+    render();
+  } finally {
+    registrarMesCellsOnly = false;
+  }
+}
+
+function handleRegistrarMesFilter(value) {
+  const [kind, filter] = String(value || "").split(":");
+  if (!kind || !filter || !(kind in registrarMesFilters)) return;
+  registrarMesFilters[kind] = filter;
+  renderRegistrarMes();
+}
+
+function handleRegistrarMesAddToggle(kind, open) {
+  if (!(kind in registrarMesAddOpen)) return;
+  registrarMesAddOpen[kind] = open;
+  renderRegistrarMes();
+  if (open) qs("registrarMesTables")?.querySelector('[data-registrar-mes-add-field="label"]')?.focus();
+}
+
+function handleRegistrarMesAddSubmit(form) {
+  const kind = form.dataset.registrarMesAddForm;
+  const month = registrarMesSelectedMonth();
+  if (!kind || !month) return;
+  if (isClosedMonthKey(month.key)) {
+    announceStatus("El mes está cerrado y no admite nuevas partidas.");
+    return;
+  }
+  const field = (name) => form.querySelector(`[data-registrar-mes-add-field="${name}"]`);
+  const labelInput = field("label");
+  const label = String(labelInput?.value || "").trim();
+  if (!label) {
+    labelInput?.focus();
+    return;
+  }
+  const row = {
+    id: `custom-${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    custom: true,
+    kind,
+    sectionName: field("section")?.value || "",
+    label,
+    monthKey: month.key,
+    plannedValue: Number(field("planned")?.value || 0),
+  };
+  customPlanningRows.push(row);
+  saveCustomPlanningRows();
+  const actualValue = field("actual")?.value;
+  if (actualValue !== undefined && actualValue !== "") {
+    const actuals = actualsForKind(kind);
+    actuals[actualKeyForRow(row, month)] = Number(actualValue);
+    saveActualsForKind(kind)();
+  }
+  registrarMesAddOpen[kind] = false;
+  registrarMesFilters[kind] = "todo";
+  registrarMesLastSaveAt = new Date();
+  announceStatus(`Partida «${label}» añadida a ${month.label}.`);
+  render();
+}
+
+function handleRegistrarMesDelete(deleteKey) {
+  const month = registrarMesSelectedMonth();
+  if (!month || isClosedMonthKey(month.key)) return;
+  deletePlanningRow(deleteKey);
+  registrarMesLastSaveAt = new Date();
+  announceStatus("Partida quitada de este mes.");
+  render();
+}
+
+function handleRegistrarMesCopy(kind) {
+  const month = registrarMesSelectedMonth();
+  if (!month || !(kind in registrarMesCopyPending)) return;
+  if (!registrarMesCopyCandidates(kind, month).length) {
+    announceStatus("No hay reales del mes anterior que copiar a las partidas vacías.");
+    return;
+  }
+  registrarMesCopyPending[kind] = true;
+  renderRegistrarMes();
+}
+
+function handleRegistrarMesCopyConfirm(kind) {
+  const month = registrarMesSelectedMonth();
+  if (!month || isClosedMonthKey(month.key)) return;
+  const candidates = registrarMesCopyCandidates(kind, month);
+  if (candidates.length) {
+    const actuals = actualsForKind(kind);
+    candidates.forEach((item) => {
+      actuals[item.key] = item.value;
+    });
+    saveActualsForKind(kind)();
+    registrarMesLastSaveAt = new Date();
+  }
+  registrarMesCopyPending[kind] = false;
+  announceStatus(`${candidates.length} real(es) copiados del mes anterior. Revisa cada importe antes de darlo por bueno.`);
+  render();
+}
+
+function handleRegistrarMesCopyCancel(kind) {
+  if (!(kind in registrarMesCopyPending)) return;
+  registrarMesCopyPending[kind] = false;
+  renderRegistrarMes();
+}
+
 function renderUpdateHub() {
   if (!qs("update-hub") || !baseData?.monthlyPlanning?.months?.length) return;
   const planning = baseData.monthlyPlanning;
@@ -16515,6 +16981,14 @@ function populateSelectors(force = false) {
   qs("detailMonth").value = [...qs("detailMonth").options].some((option) => option.value === previousDetailMonth)
     ? previousDetailMonth
     : defaultPlanningIndex;
+  const registrarSelect = qs("registrarMesMonth");
+  if (registrarSelect) {
+    const previousRegistrarMonth = registrarSelect.value;
+    registrarSelect.innerHTML = planningOptions;
+    registrarSelect.value = [...registrarSelect.options].some((option) => option.value === previousRegistrarMonth)
+      ? previousRegistrarMonth
+      : defaultPlanningIndex;
+  }
 }
 
 function csvValue(value) {
@@ -19694,6 +20168,9 @@ function renderActiveSection(viewId = viewFromHash()) {
     case "update-data":
       renderMonthlyDetails();
       break;
+    case "registrar-mes":
+      renderRegistrarMes();
+      break;
     case "update-hub":
       renderUpdateHub();
       break;
@@ -20438,6 +20915,33 @@ async function init() {
     setActiveView("movements");
   });
   qs("detailMonth").addEventListener("change", renderMonthlyDetails);
+  qs("registrarMesMonth")?.addEventListener("change", renderRegistrarMes);
+  qs("registrarMesTables")?.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-registrar-mes-actual]");
+    if (input) handleRegistrarMesActualChange(input);
+  });
+  qs("registrarMesTables")?.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-registrar-mes-add-form]");
+    if (!form) return;
+    event.preventDefault();
+    handleRegistrarMesAddSubmit(form);
+  });
+  qs("registrarMesTables")?.addEventListener("click", (event) => {
+    const filterButton = event.target.closest("[data-registrar-mes-filter]");
+    if (filterButton) { handleRegistrarMesFilter(filterButton.dataset.registrarMesFilter); return; }
+    const addButton = event.target.closest("[data-registrar-mes-add]");
+    if (addButton) { handleRegistrarMesAddToggle(addButton.dataset.registrarMesAdd, true); return; }
+    const addCancel = event.target.closest("[data-registrar-mes-add-cancel]");
+    if (addCancel) { handleRegistrarMesAddToggle(addCancel.dataset.registrarMesAddCancel, false); return; }
+    const deleteButton = event.target.closest("[data-registrar-mes-delete]");
+    if (deleteButton) { handleRegistrarMesDelete(deleteButton.dataset.registrarMesDelete); return; }
+    const copyButton = event.target.closest("[data-registrar-mes-copy]");
+    if (copyButton) { handleRegistrarMesCopy(copyButton.dataset.registrarMesCopy); return; }
+    const copyConfirm = event.target.closest("[data-registrar-mes-copy-confirm]");
+    if (copyConfirm) { handleRegistrarMesCopyConfirm(copyConfirm.dataset.registrarMesCopyConfirm); return; }
+    const copyCancel = event.target.closest("[data-registrar-mes-copy-cancel]");
+    if (copyCancel) handleRegistrarMesCopyCancel(copyCancel.dataset.registrarMesCopyCancel);
+  });
   document.querySelectorAll('input[name="projectMode"]').forEach((input) => {
     input.addEventListener("change", () => {
       pendingProjectDecision = null;

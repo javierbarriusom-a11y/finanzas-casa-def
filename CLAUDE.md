@@ -22,3 +22,35 @@ segundo entorno de desarrollo.
 - No crear más copias/espejos en otras URLs de GitHub Pages sin que el
   usuario lo pida de nuevo explícitamente.
 - Esta decisión no necesita repetirse en cada sesión: ya quedó tomada aquí.
+
+## Publicar sin pedir permiso cada vez
+
+Decisión del usuario del **10 de agosto de 2026**, que **anula el paso 4 del Modo
+Cierre** de la skill `finanzas-casa-workflow` (el que exigía un «sí» explícito en
+cada turno antes de `git add`/`commit`/`push`):
+
+> «En adelante hazlos directamente en cada tarea si están listos para publicar.»
+
+Confirmado después, ya explícitamente sobre la fusión: la autorización llega hasta
+el final del recorrido, no solo hasta el push.
+
+El ciclo completo, sin preguntar en ningún punto:
+
+1. **Validar** (`npm run verify`, o como mínimo `npm test` diciéndolo).
+2. **Actualizar `PROJECT_STATE.md`** —y `BACKLOG_STATUS.md` si cambia el estado de
+   una entrega— con las cifras reales de esa validación, nunca inventadas.
+3. **Commit y push** a la rama de trabajo en curso.
+4. **Abrir el PR** (en borrador) y esperar a su CI.
+5. **Fusionar a `main` en cuanto el CI esté en verde**, con lo que el sitio se
+   despliega solo vía `.github/workflows/pages.yml`.
+
+Los frenos que siguen puestos, y que no dependen de la prisa:
+
+- **Si la validación local o el CI fallan, no se publica.** Se informa del fallo y
+  se corrige antes; nunca se fusiona en rojo ni se fuerza una fusión.
+- **Nunca push directo a `main`**: siempre rama + PR, aunque se fusione acto seguido.
+- **Nunca hacia `contabilidadcasa`** (ver la sección anterior).
+- Un cambio que vaya más allá de lo pedido, borre datos del usuario o retire una
+  pantalla en uso se consulta igualmente, por mucho que el CI esté verde.
+
+Esta autorización tampoco necesita repetirse en cada sesión: ya quedó tomada aquí.
