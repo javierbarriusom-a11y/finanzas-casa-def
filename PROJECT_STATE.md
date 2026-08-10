@@ -2,6 +2,57 @@
 
 Fecha de revisión: 10 de agosto de 2026.
 
+## Cierre de sesión — E20-5: el cuadro de mandos con impacto (3a/3b/3c)
+
+Se cierran los tres mockups del turno 3 y con ellos **los quince de los turnos 1-3**. Tres
+pantallas nuevas, ninguna sustituye a nada:
+
+- **`#cuadro-mandos`** (3a): matriz partida × mes con el previsto editable, secciones plegables,
+  barra «Aplicar a» bajo la celda tocada (solo ese mes / hasta diciembre / todo el rango visible) y
+  un pie de impacto fijo con mínimo del horizonte, meses bajo reserva y liquidez final, cada cifra
+  con su valor anterior tachado.
+- **`#cambios-pendientes`** (3b): el efecto conjunto de la sesión, con cuatro KPI antes → después,
+  la lista de cambios ordenada por impacto real y reversible línea a línea, y un gráfico
+  guardado / con tus cambios mes a mes.
+- **`#mapa-calor`** (3c): un color por mes según colchón, resultado o ahorro, con el desglose por
+  bloques del peor mes.
+
+Lo que no se ve y es lo importante: **no hay un almacén de borradores nuevo**. Las tres reutilizan
+`visualDraftCells`, el mismo que `#visual-detail` usa desde E11, y «Guardar» es literalmente
+`saveVisualChanges`. Comprobado en navegador: al editar una celda en el cuadro de mandos, la
+pantalla heredada anuncia «1 cambio(s) pendiente(s)»; al guardar, `seriesOverrides` recibe
+`expense|expense-home|2026-08 → {planned: 1500}`. Montar un segundo sistema habría dado dos
+verdades distintas sobre qué está sin guardar, que es justo el fallo que estas pantallas evitan.
+
+El impacto se calcula aplicando los borradores sobre `seriesOverrides` de forma temporal y
+corriendo el motor canónico sin `engineContext`, para no persistir el escenario ni contaminar otras
+pantallas; el estado se restaura en un `finally`. Si el motor rechaza la combinación, el pie dice
+que no se ha podido calcular en vez de enseñar una cifra inventada.
+
+Decisiones tomadas y dichas, no escondidas:
+
+- **La fecha libre de deuda no está en el pie**, aunque el mockup la incluya: editar el previsto de
+  una partida no toca ningún contrato de deuda, así que ese dato diría «sin cambio» siempre.
+- **«Ordenado por impacto» se calcula de verdad** (*leave-one-out*): el número es lo que devolvería
+  pulsar «Revertir». Por encima de ocho cambios se ordena por importe y el rótulo lo dice.
+- **«Todos los meses» es «todo el rango visible»**: el horizonte real son 126 meses y sembrar 126
+  borradores de un clic sería una trampa.
+- **El mapa marca los meses tocados, no todos los que cambian de cifra**: la liquidez es acumulada
+  y marcar el resto pintaría el mapa entero sin decir nada.
+- **No se ha migrado el panel «Qué hacer con estos cuatro meses»** de 3c, que propone acciones
+  calculadas («mover la matrícula a septiembre: agosto pasa de 1.430 € a 1.950 €»). Eso es un motor
+  de recomendaciones que no existe. En su lugar, enlaces a las pantallas que sí pueden actuar sobre
+  ese mes y el desglose real de qué bloques pesan. Por eso 3c queda como migrada **parcial**.
+
+Validación de cierre (`npm run verify`, exit 0): **403/403 pruebas**, accesibilidad (571 IDs
+únicos), rendimiento (diff 10.000 filas en 45,0 ms; forecast y escenarios en 268,0 ms; recursos
+1198 KB), build público, privacidad y smoke test. QA en navegador a 1440 px y 390×844 sin
+desbordamiento horizontal ni errores de consola propios.
+
+`BACKLOG_STATUS.md` queda actualizado: E19 y E20 entran en la tabla maestra como verificadas y el
+«próximo objetivo recomendado» deja de apuntar a E18. La cola de diseño queda vacía; lo abierto es
+la decisión sobre el rediseño a seis vistas, las omisiones documentadas de E20 y E10.
+
 ## Publicación — PR #6 fusionado a `main`
 
 E20-4 queda publicado: PR #6 fusionado por squash (`c646d7f`) con el CI del repositorio en

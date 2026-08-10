@@ -1818,7 +1818,8 @@
   padding: 16px 18px 14px;
 }
 
-.e19-registrar-mes .registrar-mes-card-head {
+.e19-registrar-mes .registrar-mes-card-head,
+.e19-cuadro-mandos .registrar-mes-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1827,8 +1828,10 @@
   margin-bottom: 10px;
 }
 
-/* Segmentado de filtros: un solo grupo con el activo en blanco sobre fondo hundido. */
-.e19-registrar-mes .registrar-mes-filters {
+/* Segmentado de filtros: un solo grupo con el activo en blanco sobre fondo hundido.
+   Lo comparten «Registrar el mes» y el cuadro de mandos, que lo usa para elegir métrica. */
+.e19-registrar-mes .registrar-mes-filters,
+.e19-cuadro-mandos .registrar-mes-filters {
   display: inline-flex;
   gap: 2px;
   padding: 3px;
@@ -1836,7 +1839,8 @@
   border-radius: var(--e19-radius-pill);
 }
 
-.e19-registrar-mes .registrar-mes-filter {
+.e19-registrar-mes .registrar-mes-filter,
+.e19-cuadro-mandos .registrar-mes-filter {
   border: none;
   background: transparent;
   border-radius: var(--e19-radius-pill);
@@ -1846,13 +1850,15 @@
   cursor: pointer;
 }
 
-.e19-registrar-mes .registrar-mes-filter.is-active {
+.e19-registrar-mes .registrar-mes-filter.is-active,
+.e19-cuadro-mandos .registrar-mes-filter.is-active {
   background: var(--e19-surface);
   color: var(--e19-heading);
   box-shadow: var(--e19-shadow-card);
 }
 
-.e19-registrar-mes .registrar-mes-filter:focus-visible {
+.e19-registrar-mes .registrar-mes-filter:focus-visible,
+.e19-cuadro-mandos .registrar-mes-filter:focus-visible {
   outline: 2px solid var(--e19-accent);
   outline-offset: 2px;
 }
@@ -1965,7 +1971,8 @@
   border-top: 1px solid var(--e19-border);
 }
 
-.e19-registrar-mes .registrar-mes-link {
+.e19-registrar-mes .registrar-mes-link,
+.e19-cuadro-mandos .registrar-mes-link {
   border: none;
   background: transparent;
   padding: 0;
@@ -1974,7 +1981,8 @@
   cursor: pointer;
 }
 
-.e19-registrar-mes .registrar-mes-link:hover {
+.e19-registrar-mes .registrar-mes-link:hover,
+.e19-cuadro-mandos .registrar-mes-link:hover {
   color: var(--e19-accent-hover);
   text-decoration: underline;
 }
@@ -2045,4 +2053,500 @@
     align-items: flex-start;
     flex-direction: column;
   }
+}
+
+/* -------------------------------------------------------------------------------------------- */
+/* Cuadro de mandos con impacto (E20-5, mockups 3a/3b/3c) — todo bajo .e19-cuadro-mandos, que     */
+/* comparten `#cuadro-mandos`, `#cambios-pendientes` y `#mapa-calor`.                             */
+/* -------------------------------------------------------------------------------------------- */
+
+.e19-cuadro-mandos .cuadro-mandos-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* --- 3a · matriz partida x mes --- */
+
+.e19-cuadro-mandos .cuadro-mandos-wrap {
+  margin-top: 16px;
+  background: var(--e19-surface);
+  border: 1px solid var(--e19-border);
+  border-radius: var(--e19-radius-lg);
+  box-shadow: var(--e19-shadow-card);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-table {
+  min-width: 760px;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-table td,
+.e19-cuadro-mandos .cuadro-mandos-table th {
+  white-space: nowrap;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-table td:first-child {
+  min-width: 220px;
+}
+
+/* Meses ya cerrados: se muestran para poder comparar, pero no se editan. */
+.e19-cuadro-mandos .cuadro-mandos-closed {
+  color: var(--e19-faint);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-absent {
+  color: var(--e19-faint);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-section td {
+  background: var(--e19-surface-soft);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-section td:first-child {
+  box-shadow: inset 3px 0 0 var(--e19-debt);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-section.is-income td:first-child {
+  box-shadow: inset 3px 0 0 var(--e19-heading);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-toggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: 700 var(--e19-text-base) / 1.3 var(--e19-font-sans);
+  color: var(--e19-heading);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-toggle span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--e19-radius-sm);
+  background: var(--e19-surface-sunken);
+  color: var(--e19-muted);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-section small,
+.e19-cuadro-mandos .cuadro-mandos-result small {
+  display: block;
+  font-weight: 400;
+  color: var(--e19-faint);
+  font-size: 11px;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-concept {
+  padding-left: 30px !important;
+  font-weight: 600;
+  color: var(--e19-ink);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-table input[type="number"] {
+  width: 94px;
+  text-align: right;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--e19-radius-sm);
+  background: transparent;
+  font: 400 var(--e19-text-base) / 1.2 var(--e19-font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--e19-ink);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-table input[type="number"]:hover {
+  border-color: var(--e19-border-strong);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-table input[type="number"]:focus-visible {
+  outline: none;
+  border-color: var(--e19-accent);
+  background: var(--e19-surface);
+  box-shadow: 0 0 0 3px var(--e19-accent-soft);
+}
+
+/* Celda con un borrador encima: sigue siendo editable, pero se ve que no es lo guardado. */
+.e19-cuadro-mandos .cuadro-mandos-dirty {
+  background: var(--e19-accent-soft);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-dirty input[type="number"] {
+  font-weight: 700;
+  color: var(--e19-accent);
+  border-color: var(--e19-accent-soft-border);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-apply-row td {
+  background: var(--e19-accent-soft);
+  white-space: normal;
+  text-align: left;
+  padding: 10px 14px 10px 30px;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-apply-label {
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+  margin-right: 8px;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-apply-row .e19-btn {
+  margin-right: 6px;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-apply-note {
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+  margin-left: 6px;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-total td,
+.e19-cuadro-mandos .cuadro-mandos-result td {
+  border-top: 1px solid var(--e19-border-strong);
+  background: var(--e19-surface-soft);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-result td.positive strong {
+  color: var(--e19-success);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-result td.negative strong {
+  color: var(--e19-danger);
+}
+
+/* Pie de impacto: fijo abajo mientras haya cambios sin guardar (spec 5a). */
+.e19-cuadro-mandos .cuadro-mandos-impact {
+  position: sticky;
+  bottom: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+  box-shadow: var(--e19-shadow-pop);
+  z-index: 3;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-impact-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-impact-head strong {
+  font-size: var(--e19-text-md);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-impact-head small,
+.e19-cuadro-mandos .cuadro-mandos-impact-head .e19-eyebrow {
+  color: #8fa3c4;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-impact-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.e19-cuadro-mandos .e19-impact-bar dd .is-up {
+  color: #7ee2a8;
+}
+
+.e19-cuadro-mandos .e19-impact-bar dd .is-down {
+  color: #ff9a9a;
+}
+
+/* --- 3b · bandeja de cambios --- */
+
+.e19-cuadro-mandos .cambios-pendientes-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  gap: 16px;
+  margin-top: 16px;
+  align-items: start;
+}
+
+.e19-cuadro-mandos .cambios-pendientes-layout > .e19-card,
+.e19-cuadro-mandos .mapa-calor-card {
+  padding: 16px 18px;
+}
+
+/* Los KPI de la bandeja llevan antes -> despues dentro de la propia tarjeta. */
+.e19-cuadro-mandos .cuadro-mandos-kpi {
+  margin: 0;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-kpi dd {
+  margin: 0;
+  font: 800 var(--e19-text-xl) / 1.1 var(--e19-font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--e19-heading);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-kpi dd .was {
+  display: inline-block;
+  margin-right: 8px;
+  font: 400 var(--e19-text-sm) / 1 var(--e19-font-sans);
+  color: var(--e19-faint);
+  text-decoration: line-through;
+}
+
+.e19-cuadro-mandos .cuadro-mandos-kpi dd .is-up {
+  color: var(--e19-success);
+}
+
+.e19-cuadro-mandos .cuadro-mandos-kpi dd .is-down {
+  color: var(--e19-danger);
+}
+
+.e19-cuadro-mandos .cambios-pendientes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.e19-cuadro-mandos .cambios-pendientes-item {
+  display: grid;
+  grid-template-columns: 92px 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--e19-border);
+}
+
+.e19-cuadro-mandos .cambios-pendientes-item:last-child {
+  border-bottom: none;
+}
+
+.e19-cuadro-mandos .cambios-pendientes-item p {
+  margin: 2px 0 0;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+}
+
+.e19-cuadro-mandos .cambios-pendientes-item > strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.e19-cuadro-mandos .cambios-pendientes-bar {
+  display: block;
+  height: 16px;
+  border-radius: var(--e19-radius-sm);
+  background: var(--e19-surface-sunken);
+  overflow: hidden;
+}
+
+.e19-cuadro-mandos .cambios-pendientes-bar i {
+  display: block;
+  height: 100%;
+}
+
+.e19-cuadro-mandos .cambios-pendientes-bar i.is-down {
+  background: var(--e19-danger);
+}
+
+.e19-cuadro-mandos .cambios-pendientes-bar i.is-up {
+  background: var(--e19-success);
+}
+
+.e19-cuadro-mandos .cambios-pendientes-empty {
+  list-style: none;
+  color: var(--e19-muted);
+  font-size: var(--e19-text-sm);
+  padding: 14px 0;
+}
+
+.e19-cuadro-mandos .cambios-pendientes-chart svg {
+  width: 100%;
+  height: 130px;
+  display: block;
+}
+
+.e19-cuadro-mandos .cambios-chart-before {
+  fill: none;
+  stroke: var(--e19-faint);
+  stroke-width: 2;
+}
+
+.e19-cuadro-mandos .cambios-chart-after {
+  fill: none;
+  stroke: var(--e19-danger);
+  stroke-width: 2;
+}
+
+.e19-cuadro-mandos .cambios-chart-reserve {
+  stroke: var(--e19-danger);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}
+
+.e19-cuadro-mandos .cambios-chart-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+}
+
+.e19-cuadro-mandos .cambios-chart-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.e19-cuadro-mandos .cambios-chart-key-before { background: var(--e19-faint); }
+.e19-cuadro-mandos .cambios-chart-key-after { background: var(--e19-danger); }
+.e19-cuadro-mandos .cambios-chart-key-reserve { background: var(--e19-danger); opacity: 0.6; }
+
+/* --- 3c · mapa de calor --- */
+
+.e19-cuadro-mandos .mapa-calor-card {
+  margin-top: 16px;
+}
+
+.e19-cuadro-mandos .mapa-calor-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: var(--e19-text-sm);
+  color: var(--e19-muted);
+}
+
+.e19-cuadro-mandos .mapa-calor-key {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.e19-cuadro-mandos .mapa-calor-grid {
+  border-collapse: separate;
+  border-spacing: 4px;
+  width: 100%;
+  min-width: 620px;
+}
+
+.e19-cuadro-mandos .mapa-calor-grid th {
+  font: 600 11px / 1.2 var(--e19-font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--e19-muted);
+  text-align: center;
+}
+
+.e19-cuadro-mandos .mapa-calor-grid th[scope="row"] {
+  text-align: left;
+  padding-right: 8px;
+}
+
+.e19-cuadro-mandos .mapa-calor-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  border-radius: var(--e19-radius-sm);
+  border: 2px solid transparent;
+  font: 700 var(--e19-text-sm) / 1 var(--e19-font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.e19-cuadro-mandos .mapa-calor-cell.is-empty { background: var(--e19-surface-sunken); }
+.e19-cuadro-mandos .mapa-calor-key.is-negative,
+.e19-cuadro-mandos .mapa-calor-cell.is-negative { background: var(--e19-danger); color: #fff; }
+.e19-cuadro-mandos .mapa-calor-key.is-tight,
+.e19-cuadro-mandos .mapa-calor-cell.is-tight { background: var(--e19-debt); color: #fff; }
+.e19-cuadro-mandos .mapa-calor-key.is-ok,
+.e19-cuadro-mandos .mapa-calor-cell.is-ok { background: var(--e19-success-soft-border); color: var(--e19-heading); }
+.e19-cuadro-mandos .mapa-calor-key.is-good,
+.e19-cuadro-mandos .mapa-calor-cell.is-good { background: var(--e19-success); color: #fff; }
+.e19-cuadro-mandos .mapa-calor-key.is-touched { background: var(--e19-surface); border: 2px solid var(--e19-accent); }
+.e19-cuadro-mandos .mapa-calor-cell.is-touched { border-color: var(--e19-accent); }
+
+.e19-cuadro-mandos .mapa-calor-block {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) 90px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: var(--e19-text-sm);
+}
+
+.e19-cuadro-mandos .mapa-calor-block strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.e19-cuadro-mandos .mapa-calor-block-bar {
+  display: block;
+  height: 12px;
+  border-radius: var(--e19-radius-sm);
+  background: var(--e19-surface-sunken);
+  overflow: hidden;
+}
+
+.e19-cuadro-mandos .mapa-calor-block-bar i {
+  display: block;
+  height: 100%;
+  background: var(--e19-debt);
+}
+
+.e19-cuadro-mandos .mapa-calor-actions {
+  padding: 16px 18px;
+  color: #fff;
+}
+
+.e19-cuadro-mandos .mapa-calor-actions .escenario-motor-panel-title {
+  color: #fff;
+}
+
+.e19-cuadro-mandos .mapa-calor-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: var(--e19-text-sm);
+}
+
+.e19-cuadro-mandos .mapa-calor-link:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 1080px) {
+  .e19-cuadro-mandos .cambios-pendientes-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .e19-cuadro-mandos .cambios-pendientes-item {
+    grid-template-columns: 60px 80px minmax(0, 1fr);
+  }
+
+  .e19-cuadro-mandos .cambios-pendientes-item button {
+    grid-column: 3;
+    justify-self: start;
+  }
+
+  .e19-cuadro-mandos .cuadro-mandos-impact {
+    position: static;
+  }
+}
+
+/* Los botones que son enlaces no deben llevar el subrayado global de <a>. */
+.e19-cuadro-mandos a.e19-btn {
+  text-decoration: none;
 }
