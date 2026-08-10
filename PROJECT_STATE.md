@@ -1,6 +1,53 @@
 # Estado del proyecto
 
-Fecha de revisión: 9 de agosto de 2026.
+Fecha de revisión: 10 de agosto de 2026.
+
+## Cierre de sesión — E20-4: «Registrar el mes» (mockup 2a)
+
+Se migra 2a, el único pendiente del turno 2, como pantalla nueva **`#registrar-mes`** junto a
+`#update-data`, sin retirar la heredada. Las dos escriben en el mismo almacén
+(`incomeActuals` / `expenseActuals`): un real anotado en una aparece en la otra sin migrar
+ningún dato, comprobado en navegador en ambas direcciones.
+
+La diferencia real con la heredada es que la lista es **plana**: una fila por partida, sin
+acordeón. En `#update-data` un real vive detrás de un bloque cerrado; aquí las 29 partidas del
+mes están a la vista, con el filtro «Sin real» activo de entrada porque esa es la tarea.
+
+Lo que trae la pantalla:
+
+- Titular calculado («Agosto va 2,40 € por encima de lo previsto»), cuatro KPI —ingresos
+  usado, gastos usado, margen del mes con su previsto al lado, y «Completado» con barra y
+  recuento— y dos tarjetas (Gastos e Ingresos) con segmentado `Sin real` · `Con desviación` ·
+  `Todo` y contadores.
+- Guardado automático al salir de la casilla, con la hora del último guardado en la insignia.
+- Añadir partida al mes, quitar solo las añadidas aquí, y copiar los reales del mes anterior
+  con confirmación previa que dice cuántos son y de qué mes.
+
+Decisiones tomadas y por qué, sin esconderlas:
+
+- **Guardar un real no reconstruye la tabla.** El `change` salta durante el blur, antes de que
+  el foco llegue a la casilla siguiente; reescribir el HTML ahí rompía el tabulado. En ese
+  camino solo se refrescan las celdas derivadas y los contadores. Verificado: tras escribir y
+  tabular, el foco cae en la casilla siguiente.
+- **Solo se tiñe la fila que va a peor.** El filtro cuenta cualquier desviación, pero un gasto
+  que sale más barato no se pinta de aviso.
+- **La insignia dice «Guardado a las 03:17», no «Guardado hace 4 s»** como el mockup: un texto
+  relativo exige un temporizador o miente en cuanto pasan unos segundos sin repintar.
+- **No se ha migrado el aviso «Detectado en el extracto · ¿Es anual?».** Supone inferir de un
+  extracto que una partida es nueva y un modelo de recurrencia anual para las filas añadidas a
+  mano, y hoy no existe ninguna de las dos cosas. No se ha inventado: queda pendiente explícito
+  y por eso 2a figura como migrada **parcial**.
+
+Validación de cierre (`npm run verify`, exit 0): **403/403 pruebas**, accesibilidad
+(545 IDs únicos), rendimiento (diff 10.000 filas en 35,5 ms; forecast y escenarios en 170,1 ms;
+recursos 1162 KB), build público, privacidad y smoke test en verde. QA en navegador real a
+1440 px y a 390×844 sin desbordamiento horizontal ni errores de consola propios (solo el CDN de
+Supabase, que este entorno no alcanza).
+
+Documentado en `docs/E19_SISTEMA_DISENO.md`: 2a pasa a migrada en el catálogo del turno 2 y se
+añade una §11 con el detalle. Pendiente en el backlog: **3a/3b/3c · cuadro de mandos con
+impacto**, que ya tiene en esta tabla editable la base que necesitaba, y la decisión aplazada
+sobre el rediseño a seis vistas.
 
 ## Publicación — PR #5 fusionado a `main`
 

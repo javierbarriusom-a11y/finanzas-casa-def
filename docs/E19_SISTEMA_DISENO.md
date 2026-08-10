@@ -111,7 +111,7 @@ no tienen "estado de migración" porque no se ha decidido todavía si se adoptan
 
 | # | Título del mockup | Pantalla real | Estado |
 |---|---|---|---|
-| 2a | Registrar el mes · una fila por partida, guardado automático | `#update-data` | ⏳ Pendiente |
+| 2a | Registrar el mes · una fila por partida, guardado automático | `#registrar-mes` | ✅ Migrada (E20-4, parcial — ver §11) |
 | 2b | Importar extracto · bandeja previa con cuatro pasos | `#data-entry` | ✅ Migrada (E19-4) |
 | 2c | Previsión · el año como una banda, desglose del mes al clic | `#prevision` / `#forecast` | ✅ Migrada (E19-5) |
 | 2d | Aplicar escenario · diferencia línea a línea antes de tocar el plan | `#escenario-aplicar` | ✅ Migrada (E20-1) |
@@ -405,3 +405,76 @@ Lo que sí es directamente aprovechable sin esa decisión:
   `design-tokens.css`, con una diferencia notable: el rediseño usa navy `#293E5E` como color
   primario donde el sistema E19 usa azul `#0072E3`. Adoptar el rediseño implicaría también
   ese cambio de acento, no solo de arquitectura.
+
+## 11. «Registrar el mes» (2a, E20-4)
+
+Pantalla nueva `#registrar-mes`, **junto a `#update-data`**, no en su lugar: la heredada
+conserva el acordeón por bloques, el editor de conceptos y el borrado de cualquier línea.
+Las dos escriben en el mismo almacén (`incomeActuals` / `expenseActuals`), así que un real
+anotado en una aparece en la otra sin migrar ningún dato — comprobado en navegador en las
+dos direcciones.
+
+El punto del mockup, y la diferencia real con la heredada, es que **la lista es plana**: una
+fila por partida, sin desplegar nada. En `#update-data` un real vive detrás de un acordeón
+cerrado; aquí las 29 partidas del mes están a la vista, con el filtro «Sin real» activo de
+entrada porque esa es la tarea.
+
+### Qué muestra
+
+- **Titular calculado**: «Agosto va 2,40 € por encima de lo previsto», donde la cifra es
+  `desviación de gastos − desviación de ingresos` sobre las partidas que ya tienen real.
+  Sin ningún real, dice exactamente eso en vez de fingir que el mes va clavado.
+- **Cuatro KPI**: ingresos usado, gastos usado, margen del mes (con el previsto al lado) y
+  «Completado» con barra de progreso y el recuento `2/29`.
+- **Dos tarjetas** (Gastos e Ingresos), cada una con su segmentado `Sin real (n)` ·
+  `Con desviación (n)` · `Todo (n)` y su tabla de seis columnas: bloque, concepto, previsto,
+  real (casilla editable), usado y desviación.
+
+### Decisiones deliberadas
+
+- **El tinte de fila se reserva a lo que va a peor.** El filtro «Con desviación» cuenta
+  cualquier diferencia, pero solo se tiñe la fila cuando la desviación es desfavorable
+  (más gasto o menos ingreso). Pintar de aviso un gasto que ha salido más barato sería
+  ruido, no información.
+- **Guardar un real no reconstruye la tabla.** El evento `change` salta durante el blur,
+  antes de que el foco aterrice en la casilla siguiente; reescribir el HTML ahí deja el foco
+  en el aire y rompe el tabulado. En ese camino solo se refrescan las celdas derivadas
+  (previsto, usado, desviación) y los contadores de los filtros. Verificado: tras escribir
+  y tabular, el foco cae en la casilla siguiente.
+- **La fila recién rellenada no desaparece.** Con el filtro «Sin real» activo, anotar un
+  real deja la fila donde está hasta la siguiente reconstrucción; el contador del filtro sí
+  baja. Que una fila se esfume bajo el cursor mientras se escribe es peor que verla de más.
+- **Copiar reales del mes anterior pide confirmación.** El enlace no copia: cuenta los
+  candidatos, dice cuántos son y de qué mes, y espera un «Confirmar copia». Si no hay
+  ninguno, lo anuncia y no abre nada. Copiado el lote, el aviso recuerda revisarlos.
+- **Solo se pueden quitar las partidas añadidas aquí.** La `×` aparece únicamente en las
+  filas propias (`custom`), para deshacer el propio error. Borrar una línea del catálogo
+  sigue siendo cosa de `#update-data`, que es donde estaba y donde tiene su contexto.
+- **Mes cerrado**: las casillas quedan deshabilitadas y el pie de cada tarjeta lo explica en
+  vez de ofrecer acciones que el guardado rechazaría. En la práctica es defensivo: el
+  selector solo lista meses abiertos.
+
+### Qué no se ha migrado
+
+El mockup incluye, bajo la fila recién detectada, un aviso —«Detectado en el extracto del 14
+de julio · ¿Es anual? Se repetirá cada julio en el previsto»— con dos botones. Eso supone dos
+cosas que hoy no existen: inferir de un extracto importado que una partida es nueva, y un
+modelo de recurrencia anual para las filas añadidas a mano (`customPlanningRows` es
+estrictamente de un mes). No se ha inventado ninguna de las dos; queda como pendiente
+explícito, y por eso 2a figura como migrada **parcial** en el catálogo del turno 2.
+
+También cambia una cosa respecto al mockup: la insignia dice **«Guardado a las 03:17»** y no
+«Guardado hace 4 s». Un texto relativo obliga a un temporizador o miente en cuanto pasan unos
+segundos sin repintar; la hora exacta no se estropea sola.
+
+### Dónde vive el código
+
+- `index.html`: la sección `#registrar-mes` (cabecera, rejilla de KPI y contenedor de tablas);
+  todo lo demás lo genera el render.
+- `app.js`: bloque «Registrar el mes», con `renderRegistrarMes` y sus ayudantes
+  (`registrarMesCollect`, `registrarMesTotals`, `registrarMesRefreshCells`) y los manejadores
+  `handleRegistrarMes*`. Reutiliza sin tocarlas `planningSectionsForMonth`, `actualAwareInfo`,
+  `actualKeyForRow`, `deletePlanningRow` y `varianceClassForKind`.
+- `design-tokens.css`: todo bajo `.e19-registrar-mes`, incluido un par de reglas que
+  recuperan la alineación a la izquierda de bloque y concepto y el color de `.positive` /
+  `.negative`, que `.e19-table tbody td` pisaba por especificidad.

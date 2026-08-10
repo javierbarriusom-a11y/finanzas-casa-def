@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.webmanifest?v=20260808e18a4" />
     <link rel="stylesheet" href="styles.css?v=20260808e18a4" />
     <link rel="stylesheet" href="p2.css?v=20260801e9c" />
-    <link rel="stylesheet" href="design-tokens.css?v=20260809e20c1" />
+    <link rel="stylesheet" href="design-tokens.css?v=20260810e20d1" />
   </head>
   <body>
     <a class="skip-link" href="#mainContent">Saltar al contenido</a>
@@ -74,6 +74,7 @@
               <a href="#cashflow" data-e17-group="analysis">Flujo mensual</a>
 
               <p class="advanced-nav-label">Datos</p>
+              <a href="#registrar-mes" data-e17-group="data">Registrar el mes (nuevo)</a>
               <a href="#update-data" data-e17-group="data">Registrar reales del mes</a>
               <a href="#data-entry" data-e17-group="data">Carga de datos</a>
               <a href="#movements" data-e17-group="data">Movimientos</a>
@@ -1025,6 +1026,27 @@
                 </article>
               </div>
             </div>
+          </section>
+
+          <section class="e19-registrar-mes view-section" id="registrar-mes">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow" id="registrarMesEyebrow">Actualizar</p>
+                <h2 class="e19-heading" id="registrarMesTitle">Registrar el mes</h2>
+                <p class="e19-subtitle" id="registrarMesSubtitle"></p>
+              </div>
+              <div class="registrar-mes-controls">
+                <span class="e19-badge e19-badge-neutral" id="registrarMesSaved">Sin cambios en esta sesión</span>
+                <label class="month-picker">
+                  <span>Mes</span>
+                  <select id="registrarMesMonth"></select>
+                </label>
+              </div>
+            </div>
+
+            <div class="home-kpi-grid" id="registrarMesKpis"></div>
+
+            <div class="registrar-mes-tables" id="registrarMesTables"></div>
           </section>
 
           <section class="e19-asesor-decision view-section" id="asesor-decision">
@@ -2798,7 +2820,7 @@
     <script src="canonical-e9-banking.js?v=20260801e9b"></script>
     <script src="canonical-e9-bank-import.js?v=20260801e9b"></script>
     <script src="canonical-e11b-inbox.js?v=20260801e11b1"></script>
-    <script src="e17-experience.js?v=20260809e20c1"></script>
+    <script src="e17-experience.js?v=20260810e20d1"></script>
     <script src="e18-health.js?v=20260808e18a4"></script>
     <script src="canonical-decisions.js?v=20260714d"></script>
     <script src="canonical-commit-barrier.js?v=20260718p05"></script>
