@@ -272,6 +272,18 @@ const viewTitles = {
     eyebrow: "Actualizar",
     title: "Registra el mes partida a partida y mira cómo va",
   },
+  "cuadro-mandos": {
+    eyebrow: "Cuadro de mandos",
+    title: "Edita una partida y mira el impacto antes de guardar",
+  },
+  "cambios-pendientes": {
+    eyebrow: "Cambios pendientes",
+    title: "El efecto conjunto de todo lo que has tocado hoy",
+  },
+  "mapa-calor": {
+    eyebrow: "Cuadro de mandos",
+    title: "Dónde duele cada mes, sin leer una cifra",
+  },
   "update-hub": {
     eyebrow: "Actualizar mis datos",
     title: "Pon al día saldos, movimientos, reales o previsiones",
@@ -16887,6 +16899,692 @@ function handleRegistrarMesCopyCancel(kind) {
   renderRegistrarMes();
 }
 
+/* --------------------------------------------------------------------------------------------- */
+/* Cuadro de mandos con impacto (mockups 3a/3b/3c, E20-5)                                           */
+/*                                                                                                  */
+/* Tres pantallas nuevas que comparten un mismo motor: `#cuadro-mandos` (editar una celda y ver el  */
+/* impacto antes de guardar), `#cambios-pendientes` (el efecto conjunto de la sesión) y             */
+/* `#mapa-calor` (dónde duele, mes a mes).                                                          */
+/*                                                                                                  */
+/* No inventan un almacén de borradores propio: reutilizan `visualDraftCells`, el mismo que usa     */
+/* `#visual-detail` desde E11. Un importe tocado aquí aparece allí y viceversa, y «Guardar» es      */
+/* literalmente `saveVisualChanges`. El impacto se calcula aplicando los borradores sobre           */
+/* `seriesOverrides` de forma temporal y corriendo el motor canónico sin persistir el resultado.    */
+/* --------------------------------------------------------------------------------------------- */
+
+const cuadroMandosExpanded = new Set();
+// Barra «Aplicar a» que aparece bajo la última celda editada.
+let cuadroMandosApply = null;
+let mapaCalorMetric = "colchon";
+let cuadroMandosImpactCache = { key: "", value: null };
+
+function cuadroMandosAllMonths() {
+  return allVisualMonths();
+}
+
+function cuadroMandosMonths() {
+  const all = cuadroMandosAllMonths();
+  if (!all.length) return [];
+  const fallback = all.find((month) => !isClosedMonthKey(month.key))?.key || all[0].key;
+  const startKey = qs("cuadroMandosStart")?.value || fallback;
+  const span = Math.max(1, Number(qs("cuadroMandosSpan")?.value || 12));
+  const startIndex = Math.max(0, all.findIndex((month) => month.key === startKey));
+  return all.slice(startIndex, startIndex + span);
+}
+
+// Unión de partidas de todos los meses visibles: las filas añadidas a mano solo existen en su mes,
+// pero la matriz necesita una fila estable por partida para poder comparar columnas.
+function cuadroMandosSections(months) {
+  const sections = new Map();
+  months.forEach((month) => {
+    planningSectionsForMonth(null, month).forEach((section) => {
+      const key = `${section.kind}:${section.name}`;
+      let entry = sections.get(key);
+      if (!entry) {
+        entry = { key, name: section.name, kind: section.kind, rows: new Map() };
+        sections.set(key, entry);
+      }
+      section.rows.forEach((row) => {
+        const rowKey = seriesKeyForRow(row);
+        if (!entry.rows.has(rowKey)) entry.rows.set(rowKey, row);
+      });
+    });
+  });
+  return [...sections.values()]
+    .map((entry) => ({ ...entry, rows: [...entry.rows.values()] }))
+    .sort((left, right) => (left.kind === right.kind ? 0 : left.kind === "income" ? -1 : 1));
+}
+
+function cuadroMandosRowExists(row, month) {
+  if (!row.custom) return true;
+  return Boolean(customRowForVisualMonth(row, month));
+}
+
+function cuadroMandosCellValue(row, month) {
+  const draft = visualDraftForCell(row, month, "planned");
+  if (draft) return { value: Number(draft.value || 0), draft: true, before: Number(draft.oldValue || 0) };
+  return { value: Number(plannedValueForVisualRow(row, month) || 0), draft: false, before: null };
+}
+
+function cuadroMandosPlannedDrafts() {
+  return Object.values(visualDraftCells).filter((draft) => draft.mode === "planned");
+}
+
+function cuadroMandosOverridesFrom(drafts) {
+  const months = cuadroMandosAllMonths();
+  const overrides = {};
+  drafts.forEach((draft) => {
+    const row = rowForSeriesKey(draft.rowKey);
+    const month = monthByKey(draft.monthKey, months);
+    if (!row || !month) return;
+    const key = overrideKeyForRow(row, month);
+    const next = { ...(seriesOverrides[key] || {}) };
+    delete next.deleted;
+    next.planned = Number(draft.value || 0);
+    overrides[key] = next;
+  });
+  return overrides;
+}
+
+// Corre el motor canónico con los borradores puestos y lo deja todo como estaba. No persiste el
+// resultado (sin `engineContext`), así que ninguna otra pantalla ve este escenario auxiliar.
+function cuadroMandosRowsWith(drafts) {
+  if (!drafts.length) return { rows: lastSimulation, ok: true };
+  const backup = seriesOverrides;
+  seriesOverrides = { ...seriesOverrides, ...cuadroMandosOverridesFrom(drafts) };
+  try {
+    return { rows: computeCanonicalScenario(projectPlan.outflows, { captureEngineRun: false }).rows, ok: true };
+  } catch (error) {
+    return { rows: lastSimulation, ok: false, error };
+  } finally {
+    seriesOverrides = backup;
+  }
+}
+
+function cuadroMandosReserve() {
+  const configured = Number(state?.operatingReserve || 0);
+  return Number.isFinite(configured) && configured > 0 ? configured : 0;
+}
+
+function cuadroMandosSummary(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const reserve = cuadroMandosReserve();
+  if (!list.length) return { minimo: null, minimoMes: null, bajoReserva: 0, final: null, aDoceMeses: null, reserve };
+  let minimo = Infinity;
+  let minimoMes = null;
+  let bajoReserva = 0;
+  list.forEach((row) => {
+    const liquidity = Number(row.totalLiquidity || 0);
+    if (liquidity < minimo) {
+      minimo = liquidity;
+      minimoMes = row.detailMonthKey || row.month || null;
+    }
+    if (liquidity < reserve) bajoReserva += 1;
+  });
+  return {
+    minimo,
+    minimoMes,
+    bajoReserva,
+    final: Number(list.at(-1)?.totalLiquidity || 0),
+    aDoceMeses: Number(list[Math.min(11, list.length - 1)]?.totalLiquidity || 0),
+    reserve,
+  };
+}
+
+function cuadroMandosImpact() {
+  const drafts = cuadroMandosPlannedDrafts();
+  const signature = `${simulationSignature}::${JSON.stringify(drafts.map((draft) => [draft.rowKey, draft.monthKey, draft.value]))}`;
+  if (cuadroMandosImpactCache.key === signature) return cuadroMandosImpactCache.value;
+  const after = cuadroMandosRowsWith(drafts);
+  const value = {
+    drafts,
+    ok: after.ok,
+    rowsBefore: lastSimulation,
+    rowsAfter: after.rows,
+    before: cuadroMandosSummary(lastSimulation),
+    after: cuadroMandosSummary(after.rows),
+  };
+  cuadroMandosImpactCache = { key: signature, value };
+  return value;
+}
+
+function cuadroMandosDelta(before, after) {
+  const left = Number(before ?? 0);
+  const right = Number(after ?? 0);
+  return round2(right - left);
+}
+
+function cuadroMandosBeforeAfter(before, after, format, betterWhenHigher = true) {
+  const changed = Math.abs(cuadroMandosDelta(before, after)) >= 0.005;
+  if (!changed) return `<dd>${format(after)}</dd>`;
+  const tone = (cuadroMandosDelta(before, after) > 0) === betterWhenHigher ? "is-up" : "is-down";
+  return `<dd><span class="was">${format(before)}</span><span class="${tone}">${format(after)}</span></dd>`;
+}
+
+function cuadroMandosReserveLabel(summary) {
+  return summary.reserve > 0 ? `bajo la reserva de ${money(summary.reserve, true)}` : "en negativo";
+}
+
+function renderCuadroMandosImpactBar() {
+  const bar = qs("cuadroMandosImpact");
+  if (!bar) return;
+  const impact = cuadroMandosImpact();
+  if (!impact.drafts.length) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    return;
+  }
+  bar.hidden = false;
+  if (!impact.ok) {
+    bar.innerHTML = `<div class="cuadro-mandos-impact-head"><p class="e19-eyebrow">Impacto del cambio</p><strong>No se ha podido calcular</strong><small>El motor no acepta esta combinación; los cambios siguen sin guardar.</small></div>
+      <div class="cuadro-mandos-impact-actions"><button type="button" class="e19-btn e19-btn-secondary" data-cuadro-discard>Descartar</button></div>`;
+    return;
+  }
+  const { before, after, drafts } = impact;
+  const last = drafts.at(-1);
+  bar.innerHTML = `
+    <div class="cuadro-mandos-impact-head">
+      <p class="e19-eyebrow">Impacto del cambio</p>
+      <strong>${escapeHtml(last?.label || "Cambio")}${last?.monthLabel ? ` · ${escapeHtml(last.monthLabel)}` : ""}</strong>
+      <small>${drafts.length} cambio(s) sin guardar</small>
+    </div>
+    <dl><dt>Mínimo del horizonte</dt>${cuadroMandosBeforeAfter(before.minimo, after.minimo, (value) => money(value, true))}</dl>
+    <dl><dt>Meses ${escapeHtml(cuadroMandosReserveLabel(after))}</dt>${cuadroMandosBeforeAfter(before.bajoReserva, after.bajoReserva, (value) => `${Math.round(Number(value || 0))}`, false)}</dl>
+    <dl><dt>Liquidez al final</dt>${cuadroMandosBeforeAfter(before.final, after.final, (value) => money(value, true))}</dl>
+    <div class="cuadro-mandos-impact-actions">
+      <a class="e19-btn e19-btn-secondary" href="#cambios-pendientes">Ver los ${drafts.length}</a>
+      <button type="button" class="e19-btn e19-btn-secondary" data-cuadro-discard>Descartar</button>
+      <button type="button" class="e19-btn e19-btn-primary" data-cuadro-save>Guardar cambios</button>
+    </div>`;
+}
+
+function cuadroMandosApplyRowHtml(row, months, columnCount) {
+  if (!cuadroMandosApply || cuadroMandosApply.rowKey !== seriesKeyForRow(row)) return "";
+  const month = months.find((item) => item.key === cuadroMandosApply.monthKey);
+  if (!month) return "";
+  const year = month.key.slice(0, 4);
+  const lastOfYear = months.filter((item) => item.key.slice(0, 4) === year).at(-1);
+  const rest = months.filter((item) => item.key > month.key);
+  const before = cuadroMandosApply.before;
+  return `<tr class="cuadro-mandos-apply-row"><td colspan="${columnCount}">
+    <span class="cuadro-mandos-apply-label">Aplicar a:</span>
+    <button type="button" class="e19-btn e19-btn-primary" data-cuadro-apply="solo">Solo ${escapeHtml(month.label)}</button>
+    ${lastOfYear && lastOfYear.key > month.key ? `<button type="button" class="e19-btn e19-btn-secondary" data-cuadro-apply="anio">Hasta ${escapeHtml(lastOfYear.label)}</button>` : ""}
+    ${rest.length ? `<button type="button" class="e19-btn e19-btn-secondary" data-cuadro-apply="rango">Todo el rango visible</button>` : ""}
+    <span class="cuadro-mandos-apply-note">Antes: ${money(before || 0, true)}</span>
+  </td></tr>`;
+}
+
+function renderCuadroMandos() {
+  const table = qs("cuadroMandosTable");
+  if (!table || !baseData?.monthlyPlanning?.months?.length) return;
+  const months = cuadroMandosMonths();
+  if (!months.length) return;
+  const sections = cuadroMandosSections(months);
+  const columnCount = months.length + 1;
+
+  const eyebrow = qs("cuadroMandosEyebrow");
+  if (eyebrow) eyebrow.textContent = `Cuadro de mandos · ${months[0].label} – ${months.at(-1).label}`;
+  const subtitle = qs("cuadroMandosSubtitle");
+  if (subtitle) {
+    const pending = cuadroMandosPlannedDrafts().length;
+    subtitle.textContent = pending
+      ? `Editas el previsto y el pie de abajo dice qué le pasa al plan. ${pending} cambio(s) sin guardar.`
+      : "Editas el previsto de una celda y el pie de abajo dice qué le pasa al plan antes de guardar nada.";
+  }
+
+  const header = `<thead><tr><th>Partida</th>${months
+    .map((month) => `<th class="${isClosedMonthKey(month.key) ? "cuadro-mandos-closed" : ""}">${escapeHtml(month.label)}</th>`)
+    .join("")}</tr></thead>`;
+
+  const totals = { income: months.map(() => 0), expense: months.map(() => 0) };
+  const body = sections
+    .map((section) => {
+      const expanded = cuadroMandosExpanded.has(section.key);
+      const sectionTotals = months.map((month, index) => {
+        const total = section.rows.reduce(
+          (sum, row) => (cuadroMandosRowExists(row, month) ? sum + cuadroMandosCellValue(row, month).value : sum),
+          0,
+        );
+        totals[section.kind][index] += total;
+        return total;
+      });
+      const head = `<tr class="cuadro-mandos-section ${section.kind === "income" ? "is-income" : "is-expense"}">
+        <td><button type="button" class="cuadro-mandos-toggle" data-cuadro-section="${escapeHtml(section.key)}" aria-expanded="${expanded ? "true" : "false"}"><span>${expanded ? "−" : "+"}</span>${escapeHtml(section.name)}</button><small>${section.rows.length} línea(s)</small></td>
+        ${sectionTotals.map((value, index) => `<td class="${isClosedMonthKey(months[index].key) ? "cuadro-mandos-closed" : ""}"><strong>${money(value, true)}</strong></td>`).join("")}
+      </tr>`;
+      if (!expanded) return head;
+      const lines = section.rows
+        .map((row) => {
+          const rowKey = seriesKeyForRow(row);
+          const cells = months
+            .map((month) => {
+              if (!cuadroMandosRowExists(row, month)) return `<td class="cuadro-mandos-absent">—</td>`;
+              const closed = isClosedMonthKey(month.key);
+              const cell = cuadroMandosCellValue(row, month);
+              if (closed) return `<td class="cuadro-mandos-closed">${money(cell.value, true)}</td>`;
+              return `<td class="${cell.draft ? "cuadro-mandos-dirty" : ""}"><input type="number" step="0.01" inputmode="decimal" data-cuadro-cell="${escapeHtml(rowKey)}" data-cuadro-month="${escapeHtml(month.key)}" aria-label="Previsto de ${escapeHtml(visualDisplayLabel(row))} en ${escapeHtml(month.label)}" value="${amountInputValue(cell.value)}" /></td>`;
+            })
+            .join("");
+          return `<tr class="cuadro-mandos-line"><td class="cuadro-mandos-concept">${escapeHtml(visualDisplayLabel(row))}</td>${cells}</tr>${cuadroMandosApplyRowHtml(row, months, columnCount)}`;
+        })
+        .join("");
+      return head + lines;
+    })
+    .join("");
+
+  const totalRow = (label, values, className) =>
+    `<tr class="${className}"><td>${escapeHtml(label)}</td>${values
+      .map((value, index) => `<td class="${isClosedMonthKey(months[index].key) ? "cuadro-mandos-closed" : ""}"><strong>${money(value, true)}</strong></td>`)
+      .join("")}</tr>`;
+  const result = months.map((month, index) => totals.income[index] - totals.expense[index]);
+  const footer = [
+    totalRow("Total ingresos", totals.income, "cuadro-mandos-total"),
+    totalRow("Total gastos", totals.expense, "cuadro-mandos-total"),
+    `<tr class="cuadro-mandos-result"><td>Resultado del mes<small>ingresos − gastos</small></td>${result
+      .map((value, index) => `<td class="${isClosedMonthKey(months[index].key) ? "cuadro-mandos-closed" : ""} ${value < 0 ? "negative" : "positive"}"><strong>${money(value, true)}</strong></td>`)
+      .join("")}</tr>`,
+  ].join("");
+
+  table.innerHTML = `${header}<tbody>${body}${footer}</tbody>`;
+  renderCuadroMandosImpactBar();
+}
+
+function cuadroMandosStageCell(rowKey, monthKey, value) {
+  const row = rowForSeriesKey(rowKey);
+  const month = monthByKey(monthKey, cuadroMandosAllMonths());
+  if (!row || !month || isClosedMonthKey(month.key)) return null;
+  const key = visualDraftCellKey(rowKey, month.key, "planned");
+  const current = Number(plannedValueForVisualRow(row, month) || 0);
+  const next = round2(Number(value || 0));
+  if (current === next) {
+    delete visualDraftCells[key];
+    return { row, month, before: current, removed: true };
+  }
+  visualDraftCells[key] = {
+    rowKey,
+    monthKey: month.key,
+    monthLabel: month.label,
+    mode: "planned",
+    label: visualDisplayLabel(row),
+    value: next,
+    oldValue: current,
+  };
+  return { row, month, before: current, removed: false };
+}
+
+function handleCuadroMandosCellChange(input) {
+  const parsed = parseAmount(input.value);
+  const staged = cuadroMandosStageCell(
+    input.dataset.cuadroCell,
+    input.dataset.cuadroMonth,
+    input.value === "" || parsed === null ? 0 : parsed,
+  );
+  if (!staged) return;
+  cuadroMandosApply = staged.removed
+    ? null
+    : { rowKey: input.dataset.cuadroCell, monthKey: input.dataset.cuadroMonth, before: staged.before };
+  renderCuadroMandos();
+}
+
+function handleCuadroMandosApply(scope) {
+  if (!cuadroMandosApply) return;
+  const { rowKey, monthKey } = cuadroMandosApply;
+  if (scope === "solo") {
+    cuadroMandosApply = null;
+    renderCuadroMandos();
+    return;
+  }
+  const months = cuadroMandosMonths();
+  const origin = months.find((month) => month.key === monthKey);
+  const draft = visualDraftCells[visualDraftCellKey(rowKey, monthKey, "planned")];
+  if (!origin || !draft) return;
+  const year = origin.key.slice(0, 4);
+  const targets = months.filter(
+    (month) => month.key > origin.key && !isClosedMonthKey(month.key) && (scope === "rango" || month.key.slice(0, 4) === year),
+  );
+  targets.forEach((month) => cuadroMandosStageCell(rowKey, month.key, draft.value));
+  cuadroMandosApply = null;
+  announceStatus(`Importe aplicado a ${targets.length} mes(es) más. Nada se ha guardado todavía.`);
+  renderCuadroMandos();
+}
+
+function handleCuadroMandosSave() {
+  saveVisualChanges();
+  cuadroMandosApply = null;
+  announceStatus("Cambios de planificación guardados.");
+  render();
+}
+
+function handleCuadroMandosDiscard() {
+  discardVisualChanges();
+  cuadroMandosApply = null;
+  announceStatus("Cambios descartados. El plan vuelve a como estaba guardado.");
+  render();
+}
+
+/* ---- 3b · bandeja de cambios ----------------------------------------------------------------- */
+
+// Impacto individual por «dejar fuera este cambio»: es lo que mide de verdad el botón «Revertir».
+// Cuesta una simulación por cambio, así que por encima de ese tope se ordena por importe y se dice.
+const CAMBIOS_PENDIENTES_MAX_LEAVE_ONE_OUT = 8;
+
+function cambiosPendientesRanked(impact) {
+  const drafts = impact.drafts;
+  if (drafts.length <= CAMBIOS_PENDIENTES_MAX_LEAVE_ONE_OUT && impact.ok) {
+    return {
+      criterio: "sobre el mínimo del horizonte",
+      items: drafts
+        .map((draft) => {
+          const without = cuadroMandosRowsWith(drafts.filter((item) => item !== draft));
+          const minimoSin = cuadroMandosSummary(without.rows).minimo;
+          return { draft, efecto: cuadroMandosDelta(minimoSin, impact.after.minimo), revierteA: minimoSin };
+        })
+        .sort((left, right) => Math.abs(right.efecto) - Math.abs(left.efecto)),
+    };
+  }
+  return {
+    criterio: "por importe del cambio",
+    items: drafts
+      .map((draft) => ({ draft, efecto: cuadroMandosDelta(draft.oldValue, draft.value) * -1, revierteA: null }))
+      .sort((left, right) => Math.abs(right.efecto) - Math.abs(left.efecto)),
+  };
+}
+
+function cambiosPendientesChartHtml(impact) {
+  const before = impact.rowsBefore.slice(0, 24);
+  const after = impact.rowsAfter.slice(0, 24);
+  if (before.length < 2) return `<p class="e19-kpi-note">Hace falta más de un mes de horizonte para dibujar la comparación.</p>`;
+  const values = [...before, ...after].map((row) => Number(row.totalLiquidity || 0));
+  const reserve = cuadroMandosReserve();
+  const max = Math.max(...values, reserve);
+  const min = Math.min(...values, 0, reserve);
+  const width = 320;
+  const height = 130;
+  const span = max - min || 1;
+  const path = (rows) =>
+    rows
+      .map((row, index) => {
+        const x = (index / Math.max(1, rows.length - 1)) * width;
+        const y = height - ((Number(row.totalLiquidity || 0) - min) / span) * height;
+        return `${index ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join(" ");
+  const reserveY = height - ((reserve - min) / span) * height;
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Liquidez mes a mes, guardado frente a con tus cambios" preserveAspectRatio="none">
+      ${reserve > 0 ? `<line x1="0" y1="${reserveY.toFixed(1)}" x2="${width}" y2="${reserveY.toFixed(1)}" class="cambios-chart-reserve" />` : ""}
+      <path d="${path(before)}" class="cambios-chart-before" />
+      <path d="${path(after)}" class="cambios-chart-after" />
+    </svg>
+    <div class="cambios-chart-legend">
+      <span><i class="cambios-chart-key-before"></i>Guardado</span>
+      <span><i class="cambios-chart-key-after"></i>Con tus cambios</span>
+      ${reserve > 0 ? `<span><i class="cambios-chart-key-reserve"></i>Reserva ${money(reserve, true)}</span>` : ""}
+    </div>
+    <p class="e19-kpi-meta">${before.length} mes(es) desde ${escapeHtml(escenarioMotorMonthLabel(before[0]?.detailMonthKey || ""))}.</p>`;
+}
+
+function renderCambiosPendientes() {
+  if (!qs("cambios-pendientes") || !lastSimulation.length) return;
+  const impact = cuadroMandosImpact();
+  const counts = visualPendingCounts();
+  const otros = counts.labels + counts.deletes;
+
+  const title = qs("cambiosPendientesTitle");
+  const subtitle = qs("cambiosPendientesSubtitle");
+  const kpis = qs("cambiosPendientesKpis");
+  const list = qs("cambiosPendientesList");
+  const order = qs("cambiosPendientesOrder");
+  const chart = qs("cambiosPendientesChart");
+  const note = qs("cambiosPendientesNote");
+  const saveButton = qs("cambiosPendientesSave");
+  const discardButton = qs("cambiosPendientesDiscard");
+
+  if (saveButton) {
+    saveButton.disabled = !impact.drafts.length && !otros;
+    saveButton.textContent = impact.drafts.length ? `Guardar los ${impact.drafts.length} cambios` : "Guardar los cambios";
+  }
+  if (discardButton) discardButton.disabled = !impact.drafts.length && !otros;
+
+  if (!impact.drafts.length) {
+    if (title) title.textContent = otros ? `Quedan ${otros} cambio(s) de nombre o borrado sin guardar` : "No hay ningún cambio sin guardar";
+    if (subtitle) {
+      subtitle.textContent = otros
+        ? "Los importes están al día; lo pendiente son nombres o partidas marcadas para borrar, que se confirman desde Actualizar previsiones."
+        : "El plan que ves es el plan guardado. Edita una celda en Cuadro de mandos para ver aquí el efecto conjunto.";
+    }
+    if (kpis) kpis.innerHTML = "";
+    if (list) list.innerHTML = `<li class="cambios-pendientes-empty">Nada pendiente. <a href="#cuadro-mandos">Abrir el cuadro de mandos</a>.</li>`;
+    if (order) order.textContent = "";
+    if (chart) chart.innerHTML = "";
+    if (note) note.innerHTML = `<h3 class="escenario-motor-panel-title">Sin cambios abiertos</h3><p class="e19-kpi-note">Nada que revertir ni que confirmar.</p>`;
+    return;
+  }
+
+  if (!impact.ok) {
+    if (title) title.textContent = "El impacto de estos cambios no se puede calcular";
+    if (subtitle) subtitle.textContent = "El motor canónico rechaza esta combinación. Los cambios siguen sin guardar: puedes revertirlos uno a uno o descartarlos todos.";
+    if (kpis) kpis.innerHTML = "";
+    if (chart) chart.innerHTML = "";
+  }
+
+  const { before, after } = impact;
+  const deltaMinimo = cuadroMandosDelta(before.minimo, after.minimo);
+
+  if (impact.ok && title) {
+    title.textContent =
+      Math.abs(deltaMinimo) < 0.005
+        ? `Los ${impact.drafts.length} cambios no mueven el colchón mínimo`
+        : `Lo que has tocado ${deltaMinimo < 0 ? "te cuesta" : "te da"} ${money(Math.abs(deltaMinimo), true)} de colchón`;
+  }
+  if (impact.ok && subtitle) {
+    subtitle.textContent = `Nada está guardado. Puedes revertir cualquier línea por separado.${otros ? ` Hay además ${otros} cambio(s) de nombre o borrado pendientes.` : ""}`;
+  }
+
+  if (impact.ok && kpis) {
+    const card = (label, html, meta) =>
+      `<div class="e19-kpi"><span class="e19-kpi-label">${escapeHtml(label)}</span><dl class="cuadro-mandos-kpi">${html}</dl>${meta ? `<span class="e19-kpi-meta">${escapeHtml(meta)}</span>` : ""}</div>`;
+    kpis.innerHTML = [
+      card("Mínimo del horizonte", cuadroMandosBeforeAfter(before.minimo, after.minimo, (value) => money(value, true)), after.minimoMes ? `El peor mes es ${escenarioMotorMonthLabel(after.minimoMes)}` : ""),
+      card(`Meses ${cuadroMandosReserveLabel(after)}`, cuadroMandosBeforeAfter(before.bajoReserva, after.bajoReserva, (value) => String(Math.round(Number(value || 0))), false), after.reserve > 0 ? "" : "No hay reserva operativa configurada: se cuentan los meses en negativo."),
+      card("Liquidez a 12 meses", cuadroMandosBeforeAfter(before.aDoceMeses, after.aDoceMeses, (value) => money(value, true))),
+      card("Liquidez al final del horizonte", cuadroMandosBeforeAfter(before.final, after.final, (value) => money(value, true))),
+    ].join("");
+  }
+
+  const ranked = cambiosPendientesRanked(impact);
+  if (order) order.textContent = ranked.criterio;
+  if (list) {
+    const peak = Math.max(...ranked.items.map((item) => Math.abs(item.efecto)), 1);
+    list.innerHTML = ranked.items
+      .map((item) => {
+        const width = Math.max(4, Math.round((Math.abs(item.efecto) / peak) * 100));
+        const good = item.efecto >= 0;
+        return `<li class="cambios-pendientes-item">
+          <span class="cambios-pendientes-bar"><i class="${good ? "is-up" : "is-down"}" style="width:${width}%"></i></span>
+          <strong class="${good ? "positive" : "negative"}">${cuadroMandosDelta(0, item.efecto) > 0 ? "+" : ""}${money(item.efecto, true)}</strong>
+          <div>
+            <strong>${escapeHtml(item.draft.label)}</strong>
+            <p>${money(item.draft.oldValue || 0, true)} → ${money(item.draft.value || 0, true)} · ${escapeHtml(item.draft.monthLabel || "")}</p>
+          </div>
+          <button type="button" class="registrar-mes-link" data-cambios-revert="${escapeHtml(visualDraftCellKey(item.draft.rowKey, item.draft.monthKey, "planned"))}">Revertir</button>
+        </li>`;
+      })
+      .join("");
+  }
+
+  if (impact.ok && chart) chart.innerHTML = cambiosPendientesChartHtml(impact);
+
+  if (note) {
+    if (!impact.ok) {
+      note.innerHTML = `<h3 class="escenario-motor-panel-title">Sin cálculo disponible</h3><p class="e19-kpi-note">Revierte el último cambio para volver a un plan que el motor sí resuelve.</p>`;
+    } else {
+      const worst = after.minimoMes ? escenarioMotorMonthLabel(after.minimoMes) : "el peor mes";
+      const cruza = after.bajoReserva - before.bajoReserva;
+      note.innerHTML = `<h3 class="escenario-motor-panel-title">${escapeHtml(worst)} se queda en ${money(after.minimo, true)}</h3>
+        <p class="e19-kpi-note">${escapeHtml(
+          cruza > 0
+            ? `Si guardas estos cambios, ${cruza} mes(es) más quedan ${cuadroMandosReserveLabel(after)}.`
+            : cruza < 0
+              ? `Si guardas estos cambios, ${Math.abs(cruza)} mes(es) dejan de estar ${cuadroMandosReserveLabel(after)}.`
+              : `El número de meses ${cuadroMandosReserveLabel(after)} no cambia.`,
+        )} Revertir el cambio de arriba devuelve el mínimo a ${ranked.items[0]?.revierteA !== null && ranked.items[0]?.revierteA !== undefined ? money(ranked.items[0].revierteA, true) : "su valor anterior"}.</p>`;
+    }
+  }
+}
+
+function handleCambiosPendientesRevert(key) {
+  if (!visualDraftCells[key]) return;
+  delete visualDraftCells[key];
+  cuadroMandosApply = null;
+  announceStatus("Cambio revertido. Sigue sin guardarse nada.");
+  renderCambiosPendientes();
+  renderCuadroMandos();
+}
+
+/* ---- 3c · mapa de calor ----------------------------------------------------------------------- */
+
+const MAPA_CALOR_METRICS = {
+  colchon: { label: "Colchón", value: (row) => Number(row.totalLiquidity || 0) },
+  resultado: { label: "Resultado", value: (row) => Number(row.netBeforeSaving || 0) },
+  ahorro: { label: "Ahorro", value: (row) => Number(row.saving || 0) },
+};
+
+// El suelo de referencia del color: la reserva operativa si está configurada; si no, un mes de
+// salidas del primer mes del horizonte. Se dice cuál de los dos se está usando, no se esconde.
+function mapaCalorFloor(rows) {
+  const reserve = cuadroMandosReserve();
+  if (reserve > 0) return { value: reserve, source: `la reserva operativa de ${money(reserve, true)}` };
+  const first = rows[0];
+  const outflow = first ? Number(first.coreSpend || 0) + Number(first.car || 0) + Number(first.refi || 0) : 0;
+  return { value: Math.max(outflow, 1), source: `un mes de salidas (${money(outflow, true)}), porque no hay reserva operativa configurada` };
+}
+
+function mapaCalorTone(value, floor) {
+  if (value < 0) return "is-negative";
+  if (value < floor) return "is-tight";
+  if (value < floor * 3) return "is-ok";
+  return "is-good";
+}
+
+function renderMapaCalor() {
+  const grid = qs("mapaCalorGrid");
+  if (!grid || !lastSimulation.length) return;
+  const metric = MAPA_CALOR_METRICS[mapaCalorMetric] || MAPA_CALOR_METRICS.colchon;
+  const impact = cuadroMandosImpact();
+  const rowsAfter = impact.ok ? impact.rowsAfter : impact.rowsBefore;
+  const floor = mapaCalorFloor(rowsAfter);
+  // Se marcan los meses donde vive el cambio, no todos los que quedan detrás. La liquidez es
+  // acumulada: un cambio en agosto mueve la cifra de los cien meses siguientes, y marcarlos todos
+  // pintaría el mapa entero sin decir nada.
+  const touchedMonths = new Set(impact.drafts.map((draft) => draft.monthKey));
+
+  const byYear = new Map();
+  rowsAfter.forEach((row) => {
+    const key = String(row.detailMonthKey || row.month || "");
+    const match = key.match(/^(\d{4})-(\d{2})$/);
+    if (!match) return;
+    if (!byYear.has(match[1])) byYear.set(match[1], new Array(12).fill(null));
+    byYear.get(match[1])[Number(match[2]) - 1] = { key, row };
+  });
+
+  const monthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const years = [...byYear.keys()].sort().slice(0, 6);
+  grid.innerHTML = `<thead><tr><th></th>${monthNames.map((name) => `<th>${name}</th>`).join("")}</tr></thead>
+    <tbody>${years
+      .map(
+        (year) => `<tr><th scope="row">${year}</th>${byYear
+          .get(year)
+          .map((cell) => {
+            if (!cell) return `<td><span class="mapa-calor-cell is-empty"></span></td>`;
+            const value = metric.value(cell.row);
+            const touched = touchedMonths.has(cell.key);
+            return `<td><span class="mapa-calor-cell ${mapaCalorTone(value, floor.value)}${touched ? " is-touched" : ""}" title="${escapeHtml(escenarioMotorMonthLabel(cell.key))}: ${escapeHtml(money(value, true))}${touched ? " · tiene un cambio sin guardar" : ""}">${money(value, false)}</span></td>`;
+          })
+          .join("")}</tr>`,
+      )
+      .join("")}</tbody>`;
+
+  const legend = qs("mapaCalorLegend");
+  if (legend) {
+    legend.innerHTML = `
+      <span><i class="mapa-calor-key is-negative"></i>En negativo</span>
+      <span><i class="mapa-calor-key is-tight"></i>Justo</span>
+      <span><i class="mapa-calor-key is-ok"></i>Holgado</span>
+      <span><i class="mapa-calor-key is-good"></i>Muy holgado</span>
+      ${impact.drafts.length ? `<span><i class="mapa-calor-key is-touched"></i>Mes con un cambio sin guardar</span>` : ""}`;
+  }
+
+  const subtitle = qs("mapaCalorSubtitle");
+  if (subtitle) {
+    subtitle.textContent = `Cada casilla es un mes; el color compara ${metric.label.toLowerCase()} con ${floor.source}. Pasa por encima para ver la cifra exacta.${impact.drafts.length ? " Los meses donde has tocado algo salen con borde: el resto de cifras también se mueven, porque la liquidez es acumulada." : ""}`;
+  }
+
+  const worst = rowsAfter.reduce((lowest, row) => (Number(row.totalLiquidity || 0) < Number(lowest?.totalLiquidity ?? Infinity) ? row : lowest), null);
+  const worstKey = String(worst?.detailMonthKey || worst?.month || "");
+  const worstMonth = cuadroMandosAllMonths().find((month) => month.key === worstKey);
+  const titleEl = qs("mapaCalorWorstTitle");
+  if (titleEl) titleEl.textContent = `Qué pesa en ${escenarioMotorMonthLabel(worstKey)}`;
+
+  const breakdown = qs("mapaCalorBreakdown");
+  if (breakdown) {
+    if (!worstMonth) {
+      breakdown.innerHTML = `<p class="e19-kpi-note">El peor mes cae fuera de las partidas planificadas, así que no hay desglose por bloque.</p>`;
+    } else {
+      const blocks = planningSectionsForMonth("expense", worstMonth)
+        .map((section) => ({
+          name: section.name,
+          total: section.rows.reduce((sum, row) => sum + Number(actualAwareInfo(row, worstMonth).value || 0), 0),
+        }))
+        .sort((left, right) => right.total - left.total);
+      const peak = Math.max(...blocks.map((block) => block.total), 1);
+      breakdown.innerHTML = blocks
+        .map(
+          (block) => `<div class="mapa-calor-block">
+            <span>${escapeHtml(block.name)}</span>
+            <span class="mapa-calor-block-bar"><i style="width:${Math.max(2, Math.round((block.total / peak) * 100))}%"></i></span>
+            <strong>${money(block.total, true)}</strong>
+          </div>`,
+        )
+        .join("");
+    }
+  }
+
+  const worstNote = qs("mapaCalorWorstNote");
+  if (worstNote) {
+    worstNote.textContent = worst
+      ? `${escenarioMotorMonthLabel(worstKey)} cierra con ${money(Number(worst.totalLiquidity || 0), true)} de colchón, el mínimo de todo el horizonte.`
+      : "";
+  }
+
+  const links = qs("mapaCalorLinks");
+  if (links) {
+    // Enlaces a las pantallas que sí pueden actuar sobre ese mes. No se generan propuestas
+    // automáticas («mover la matrícula a septiembre») porque no existe un motor que las calcule:
+    // inventarlas sería prometer un cálculo que nadie ha hecho.
+    links.innerHTML = [
+      ["Mover o recortar una partida de ese mes", "#cuadro-mandos", "Abrir cuadro de mandos"],
+      ["Probar una decisión completa antes de tocar el plan", "#escenario-simular", "Abrir escenario"],
+      ["Ver si refinanciar o reunificar mueve la deuda", "#deuda-comparar", "Comparar estrategias"],
+    ]
+      .map(
+        ([text, href, cta]) => `<div class="mapa-calor-link"><span>${escapeHtml(text)}</span><a class="e19-btn e19-btn-primary" href="${href}">${escapeHtml(cta)}</a></div>`,
+      )
+      .join("");
+  }
+}
+
+function handleMapaCalorMetric(metric) {
+  if (!MAPA_CALOR_METRICS[metric]) return;
+  mapaCalorMetric = metric;
+  document.querySelectorAll("[data-mapa-calor-metric]").forEach((button) => {
+    const active = button.dataset.mapaCalorMetric === metric;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  renderMapaCalor();
+}
+
 function renderUpdateHub() {
   if (!qs("update-hub") || !baseData?.monthlyPlanning?.months?.length) return;
   const planning = baseData.monthlyPlanning;
@@ -16981,6 +17679,18 @@ function populateSelectors(force = false) {
   qs("detailMonth").value = [...qs("detailMonth").options].some((option) => option.value === previousDetailMonth)
     ? previousDetailMonth
     : defaultPlanningIndex;
+  const cuadroSelect = qs("cuadroMandosStart");
+  if (cuadroSelect) {
+    const previousCuadroMonth = cuadroSelect.value;
+    const visualMonthList = allVisualMonths();
+    cuadroSelect.innerHTML = visualMonthList
+      .map((month) => `<option value="${month.key}">${escapeHtml(month.label)}${isClosedMonthKey(month.key) ? " · cerrado" : ""}</option>`)
+      .join("");
+    const defaultCuadroKey = visualMonthList.find((month) => !isClosedMonthKey(month.key))?.key || visualMonthList[0]?.key || "";
+    cuadroSelect.value = [...cuadroSelect.options].some((option) => option.value === previousCuadroMonth)
+      ? previousCuadroMonth
+      : defaultCuadroKey;
+  }
   const registrarSelect = qs("registrarMesMonth");
   if (registrarSelect) {
     const previousRegistrarMonth = registrarSelect.value;
@@ -20171,6 +20881,15 @@ function renderActiveSection(viewId = viewFromHash()) {
     case "registrar-mes":
       renderRegistrarMes();
       break;
+    case "cuadro-mandos":
+      renderCuadroMandos();
+      break;
+    case "cambios-pendientes":
+      renderCambiosPendientes();
+      break;
+    case "mapa-calor":
+      renderMapaCalor();
+      break;
     case "update-hub":
       renderUpdateHub();
       break;
@@ -20915,6 +21634,37 @@ async function init() {
     setActiveView("movements");
   });
   qs("detailMonth").addEventListener("change", renderMonthlyDetails);
+  qs("cuadroMandosStart")?.addEventListener("change", renderCuadroMandos);
+  qs("cuadroMandosSpan")?.addEventListener("change", renderCuadroMandos);
+  qs("cuadroMandosTable")?.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-cuadro-cell]");
+    if (input) handleCuadroMandosCellChange(input);
+  });
+  qs("cuadroMandosTable")?.addEventListener("click", (event) => {
+    const sectionButton = event.target.closest("[data-cuadro-section]");
+    if (sectionButton) {
+      const key = sectionButton.dataset.cuadroSection;
+      if (cuadroMandosExpanded.has(key)) cuadroMandosExpanded.delete(key);
+      else cuadroMandosExpanded.add(key);
+      renderCuadroMandos();
+      return;
+    }
+    const applyButton = event.target.closest("[data-cuadro-apply]");
+    if (applyButton) handleCuadroMandosApply(applyButton.dataset.cuadroApply);
+  });
+  qs("cuadroMandosImpact")?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-cuadro-save]")) { handleCuadroMandosSave(); return; }
+    if (event.target.closest("[data-cuadro-discard]")) handleCuadroMandosDiscard();
+  });
+  qs("cambiosPendientesSave")?.addEventListener("click", handleCuadroMandosSave);
+  qs("cambiosPendientesDiscard")?.addEventListener("click", handleCuadroMandosDiscard);
+  qs("cambiosPendientesList")?.addEventListener("click", (event) => {
+    const revert = event.target.closest("[data-cambios-revert]");
+    if (revert) handleCambiosPendientesRevert(revert.dataset.cambiosRevert);
+  });
+  document.querySelectorAll("[data-mapa-calor-metric]").forEach((button) => {
+    button.addEventListener("click", () => handleMapaCalorMetric(button.dataset.mapaCalorMetric));
+  });
   qs("registrarMesMonth")?.addEventListener("change", renderRegistrarMes);
   qs("registrarMesTables")?.addEventListener("change", (event) => {
     const input = event.target.closest("[data-registrar-mes-actual]");

@@ -121,9 +121,9 @@ no tienen "estado de migración" porque no se ha decidido todavía si se adoptan
 
 | # | Título del mockup | Pantalla real | Estado |
 |---|---|---|---|
-| 3a | Editas una celda y el impacto aparece abajo, antes de guardar | *(no existe todavía)* | ⏳ Pendiente |
-| 3b | Bandeja de cambios · efecto conjunto de todo lo tocado en la sesión | *(no existe todavía)* | ⏳ Pendiente |
-| 3c | Mapa de calor · dónde duele cada cambio, sin leer una cifra | *(no existe todavía)* | ⏳ Pendiente |
+| 3a | Editas una celda y el impacto aparece abajo, antes de guardar | `#cuadro-mandos` | ✅ Migrada (E20-5) |
+| 3b | Bandeja de cambios · efecto conjunto de todo lo tocado en la sesión | `#cambios-pendientes` | ✅ Migrada (E20-5) |
+| 3c | Mapa de calor · dónde duele cada cambio, sin leer una cifra | `#mapa-calor` | ✅ Migrada (E20-5, parcial — ver §12) |
 
 ### Turno 4 — Rediseño completo · las 22 pantallas actuales reducidas a 5 + ajustes
 
@@ -478,3 +478,70 @@ segundos sin repintar; la hora exacta no se estropea sola.
 - `design-tokens.css`: todo bajo `.e19-registrar-mes`, incluido un par de reglas que
   recuperan la alineación a la izquierda de bloque y concepto y el color de `.positive` /
   `.negative`, que `.e19-table tbody td` pisaba por especificidad.
+
+## 12. Cuadro de mandos con impacto (3a/3b/3c, E20-5)
+
+Tres pantallas nuevas que cierran el turno 3, y con él los quince mockups de los turnos 1-3:
+
+| Mockup | Pantalla | Qué hace |
+|---|---|---|
+| 3a | `#cuadro-mandos` | Matriz partida × mes con el previsto editable y un pie de impacto que dice qué le pasa al plan antes de guardar |
+| 3b | `#cambios-pendientes` | El efecto conjunto de la sesión, con cada cambio ordenado por impacto y reversible por separado |
+| 3c | `#mapa-calor` | Un color por mes según el colchón que queda, con el desglose del peor mes |
+
+### No hay un almacén de borradores nuevo
+
+Lo importante de esta entrega no se ve: las tres pantallas **reutilizan `visualDraftCells`**, el
+mismo almacén de cambios sin confirmar que `#visual-detail` usa desde E11. Un importe tocado en
+`#cuadro-mandos` aparece en el panel «Cambios pendientes» de la pantalla heredada y viceversa, y
+«Guardar cambios» es literalmente `saveVisualChanges`. Comprobado en navegador: tras editar una
+celda en el cuadro de mandos, `#visual-detail` anuncia «1 cambio(s) pendiente(s)»; tras guardar,
+`seriesOverrides` contiene `expense|expense-home|2026-08 → {planned: 1500}`.
+
+Montar un segundo sistema de borradores habría dado dos verdades sobre «qué está sin guardar»,
+que es exactamente el fallo que estas pantallas existen para evitar.
+
+### Cómo se calcula el impacto
+
+`cuadroMandosRowsWith(drafts)` aplica los borradores sobre `seriesOverrides` de forma temporal,
+corre el motor canónico **sin `engineContext`** —así no persiste el escenario ni lo ve ninguna
+otra pantalla— y restaura el estado en un `finally`. De ahí salen las tres cifras del pie:
+mínimo del horizonte, meses bajo reserva y liquidez final, cada una con su valor anterior tachado.
+
+Si el motor rechaza la combinación, no se enseña un número inventado: el pie dice que no se ha
+podido calcular y los cambios siguen sin guardarse.
+
+### Decisiones deliberadas
+
+- **La fecha libre de deuda no está en el pie**, aunque el mockup 3a la incluya. Editar el
+  previsto de una partida de planificación no toca ningún contrato de deuda, así que ese dato
+  diría «sin cambio» siempre. La fecha libre de deuda sí se mueve en `#escenario-simular` y
+  `#deuda-comparar`, que es donde viven las decisiones que la mueven.
+- **«Ordenado por impacto» se calcula de verdad.** Cada cambio se valora quitándolo de la
+  simulación (*leave-one-out*): el número que se ve es lo que devolvería pulsar «Revertir». Cuesta
+  una simulación por cambio, así que por encima de ocho se ordena por importe y el rótulo lo dice
+  en lugar de fingir el mismo criterio.
+- **«Todos los meses» es «todo el rango visible».** El mockup ofrece aplicar un importe a todos
+  los meses; el horizonte real son 126, y sembrar 126 borradores desde un clic es una trampa.
+  El botón dice exactamente hasta dónde llega.
+- **El mapa marca los meses que has tocado, no los que cambian de cifra.** La liquidez es
+  acumulada: un cambio en agosto mueve los cien meses siguientes, y marcarlos todos pintaría el
+  mapa entero sin decir nada. Se marca la causa y el subtítulo explica que el resto también se
+  mueve.
+- **El suelo del color se declara.** Si hay reserva operativa configurada se usa esa; si no, un
+  mes de salidas, y el subtítulo dice cuál de las dos está en uso y por qué.
+- **Los meses cerrados se ven pero no se editan**, según la especificación 5a.
+
+### Qué no se ha migrado
+
+El panel «Qué hacer con estos cuatro meses» del mockup 3c propone acciones concretas y calculadas
+—«mover la matrícula a septiembre: agosto pasa de 1.430 € a 1.950 €», «bajar el traspaso a
+Mediolanum en ago-oct»— con botones de «Simular». Eso es un motor de recomendaciones que no
+existe: generaría propuestas y cifras que nadie ha calculado. En su lugar, el panel enlaza a las
+pantallas que sí pueden actuar sobre ese mes (el propio cuadro de mandos, `#escenario-simular` y
+`#deuda-comparar`) y el desglose de al lado dice, con datos reales, qué bloques de gasto pesan en
+el peor mes. Por eso 3c figura como migrada **parcial**.
+
+También queda fuera el modo «Previsto ▾» de 3a como desplegable de métrica: la matriz edita
+previsto, que es lo único que tiene sentido editar hacia el futuro. Los reales se registran en
+`#registrar-mes`.

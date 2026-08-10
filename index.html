@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.webmanifest?v=20260808e18a4" />
     <link rel="stylesheet" href="styles.css?v=20260808e18a4" />
     <link rel="stylesheet" href="p2.css?v=20260801e9c" />
-    <link rel="stylesheet" href="design-tokens.css?v=20260810e20d1" />
+    <link rel="stylesheet" href="design-tokens.css?v=20260810e20e1" />
   </head>
   <body>
     <a class="skip-link" href="#mainContent">Saltar al contenido</a>
@@ -68,6 +68,9 @@
               <a href="#alerts-center" data-e17-group="analysis">Centro de alertas</a>
 
               <p class="advanced-nav-label">Analizar</p>
+              <a href="#cuadro-mandos" data-e17-group="analysis">Cuadro de mandos (nuevo)</a>
+              <a href="#cambios-pendientes" data-e17-group="analysis">Cambios pendientes (nuevo)</a>
+              <a href="#mapa-calor" data-e17-group="analysis">Mapa de calor (nuevo)</a>
               <a href="#prevision" data-e17-group="analysis">Previsión mensual</a>
               <a href="#forecast" data-e17-group="analysis">Proyección</a>
               <a href="#savings-plan" data-e17-group="analysis">Plan ahorro</a>
@@ -1047,6 +1050,104 @@
             <div class="home-kpi-grid" id="registrarMesKpis"></div>
 
             <div class="registrar-mes-tables" id="registrarMesTables"></div>
+          </section>
+
+          <section class="e19-cuadro-mandos view-section" id="cuadro-mandos">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow" id="cuadroMandosEyebrow">Cuadro de mandos</p>
+                <h2 class="e19-heading">Detalle por partida</h2>
+                <p class="e19-subtitle" id="cuadroMandosSubtitle"></p>
+              </div>
+              <div class="cuadro-mandos-controls">
+                <label class="month-picker">
+                  <span>Desde</span>
+                  <select id="cuadroMandosStart"></select>
+                </label>
+                <label class="month-picker">
+                  <span>Horizonte</span>
+                  <select id="cuadroMandosSpan">
+                    <option value="6">6 meses</option>
+                    <option value="12" selected>12 meses</option>
+                    <option value="24">24 meses</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="table-wrap cuadro-mandos-wrap">
+              <table class="e19-table cuadro-mandos-table" id="cuadroMandosTable"></table>
+            </div>
+
+            <div class="e19-impact-bar cuadro-mandos-impact" id="cuadroMandosImpact" hidden></div>
+          </section>
+
+          <section class="e19-cuadro-mandos view-section" id="cambios-pendientes">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow" id="cambiosPendientesEyebrow">Cambios pendientes</p>
+                <h2 class="e19-heading" id="cambiosPendientesTitle">Lo que has tocado todavía no está guardado</h2>
+                <p class="e19-subtitle" id="cambiosPendientesSubtitle"></p>
+              </div>
+              <div class="visual-controls">
+                <button type="button" class="e19-btn e19-btn-secondary" id="cambiosPendientesDiscard">Descartar todo</button>
+                <button type="button" class="e19-btn e19-btn-primary" id="cambiosPendientesSave">Guardar los cambios</button>
+              </div>
+            </div>
+
+            <div class="home-kpi-grid" id="cambiosPendientesKpis"></div>
+
+            <div class="cambios-pendientes-layout">
+              <article class="e19-card">
+                <div class="registrar-mes-card-head">
+                  <h3 class="escenario-motor-panel-title">Cambios, ordenados por impacto</h3>
+                  <span class="e19-kpi-note" id="cambiosPendientesOrder"></span>
+                </div>
+                <ol class="cambios-pendientes-list" id="cambiosPendientesList"></ol>
+              </article>
+
+              <div class="deuda-ruta-side">
+                <article class="e19-card">
+                  <h3 class="escenario-motor-panel-title">Antes y después, mes a mes</h3>
+                  <div class="cambios-pendientes-chart" id="cambiosPendientesChart"></div>
+                </article>
+                <article class="e19-card cuadro-mandos-note" id="cambiosPendientesNote"></article>
+              </div>
+            </div>
+          </section>
+
+          <section class="e19-cuadro-mandos view-section" id="mapa-calor">
+            <div class="section-title with-action">
+              <div>
+                <p class="panel-kicker e19-eyebrow">Cuadro de mandos · salud mensual</p>
+                <h2 class="e19-heading">Cada casilla es un mes. El color es el colchón que queda.</h2>
+                <p class="e19-subtitle" id="mapaCalorSubtitle"></p>
+              </div>
+              <div class="registrar-mes-filters" role="group" aria-label="Métrica del mapa">
+                <button type="button" class="registrar-mes-filter is-active" data-mapa-calor-metric="colchon" aria-pressed="true">Colchón</button>
+                <button type="button" class="registrar-mes-filter" data-mapa-calor-metric="resultado" aria-pressed="false">Resultado</button>
+                <button type="button" class="registrar-mes-filter" data-mapa-calor-metric="ahorro" aria-pressed="false">Ahorro</button>
+              </div>
+            </div>
+
+            <article class="e19-card mapa-calor-card">
+              <div class="mapa-calor-legend" id="mapaCalorLegend"></div>
+              <div class="table-wrap">
+                <table class="mapa-calor-grid" id="mapaCalorGrid"></table>
+              </div>
+            </article>
+
+            <div class="cambios-pendientes-layout">
+              <article class="e19-card">
+                <h3 class="escenario-motor-panel-title" id="mapaCalorWorstTitle">Qué pesa en el peor mes</h3>
+                <div class="mapa-calor-breakdown" id="mapaCalorBreakdown"></div>
+                <p class="e19-kpi-note" id="mapaCalorWorstNote"></p>
+              </article>
+              <article class="e19-card e19-card-strong mapa-calor-actions">
+                <h3 class="escenario-motor-panel-title">Dónde seguir con ese mes</h3>
+                <div id="mapaCalorLinks"></div>
+              </article>
+            </div>
           </section>
 
           <section class="e19-asesor-decision view-section" id="asesor-decision">
@@ -2820,7 +2921,7 @@
     <script src="canonical-e9-banking.js?v=20260801e9b"></script>
     <script src="canonical-e9-bank-import.js?v=20260801e9b"></script>
     <script src="canonical-e11b-inbox.js?v=20260801e11b1"></script>
-    <script src="e17-experience.js?v=20260810e20d1"></script>
+    <script src="e17-experience.js?v=20260810e20e1"></script>
     <script src="e18-health.js?v=20260808e18a4"></script>
     <script src="canonical-decisions.js?v=20260714d"></script>
     <script src="canonical-commit-barrier.js?v=20260718p05"></script>
