@@ -1,6 +1,29 @@
 # Instrucciones del proyecto
 
-## Publicación: un único sitio, esta rama
+## ⚠️ Este repositorio está CONGELADO. La sede se movió.
+
+Decisión del usuario del **10 de agosto de 2026**:
+
+> «El proyecto vivo es contabilidadcasa. Finanzas-casa-def se queda congelado a
+> partir de ahora.»
+
+**El desarrollo continúa en `javierbarriusom-a11y/contabilidadcasa`**, publicado en
+`https://javierbarriusom-a11y.github.io/contabilidadcasa/`. Allí está volcado todo
+lo que hay aquí (hasta E20-5 incluido) y allí van los cambios nuevos.
+
+Si has aterrizado en este repositorio para trabajar, **estás en el sitio
+equivocado**: cambia a `contabilidadcasa` y lee su `CLAUDE.md`. No hagas cambios
+aquí salvo que el usuario lo pida de forma explícita y sabiendo que este repositorio
+está congelado.
+
+Este repositorio conserva su historial completo y su sitio sigue en pie tal y como
+quedó el 10 de agosto de 2026, pero no recibe más cambios. Todo lo que sigue abajo
+es el estado en que quedaron las reglas ese día, y se conserva como registro
+histórico, no como instrucción vigente.
+
+---
+
+## Publicación: un único sitio, esta rama *(histórico — ya no vigente)*
 
 Todo el desarrollo y despliegue de este dashboard vive **únicamente** en este
 repositorio (`javierbarriusom-a11y/finanzas-casa-def`), publicado en

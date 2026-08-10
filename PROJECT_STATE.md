@@ -2,6 +2,19 @@
 
 Fecha de revisión: 10 de agosto de 2026.
 
+## ⚠️ Repositorio congelado — la sede se movió a `contabilidadcasa`
+
+Por decisión expresa del usuario el 10 de agosto de 2026, **este repositorio queda congelado** y
+el desarrollo continúa en `javierbarriusom-a11y/contabilidadcasa`
+(`https://javierbarriusom-a11y.github.io/contabilidadcasa/`).
+
+Todo lo que hay aquí —hasta E20-5 incluido— está volcado allí, junto con `docs/` y la skill de
+flujo de trabajo. Este repositorio conserva su historial y su sitio sigue publicado tal y como
+quedó hoy, pero no recibe más cambios.
+
+Las entradas que siguen son el registro de cómo se llegó hasta aquí. El estado vivo del proyecto se
+lleva desde ahora en el `PROJECT_STATE.md` de `contabilidadcasa`.
+
 ## Cierre de sesión — E20-5: el cuadro de mandos con impacto (3a/3b/3c)
 
 Se cierran los tres mockups del turno 3 y con ellos **los quince de los turnos 1-3**. Tres
