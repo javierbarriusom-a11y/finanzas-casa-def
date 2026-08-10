@@ -2,6 +2,25 @@
 
 Fecha de revisión: 10 de agosto de 2026.
 
+## Publicación — PR #6 fusionado a `main`
+
+E20-4 queda publicado: PR #6 fusionado por squash (`c646d7f`) con el CI del repositorio en
+verde. Validación repetida sobre el `main` ya fusionado: 403/403 pruebas, accesibilidad
+(545 IDs únicos), rendimiento, build público, privacidad y smoke test.
+
+Con esto, el catálogo de mockups de los turnos 1-3 queda **cerrado salvo 3a/3b/3c**: los
+quince de los tres primeros turnos están migrados menos el cuadro de mandos con impacto, que
+es el siguiente objetivo y que ya cuenta con la tabla editable de `#registrar-mes` como base
+y con la especificación escrita del turno 5. La decisión sobre el rediseño a seis vistas
+(turnos 4-5) sigue deliberadamente aplazada.
+
+Cambio de proceso registrado en `CLAUDE.md`: a petición del usuario, el ciclo validar →
+actualizar estado → commit → push → PR → fusionar en verde se ejecuta de principio a fin sin
+pedir permiso turno a turno. Esto **anula el paso 4 del Modo Cierre** de la skill
+`finanzas-casa-workflow`. Siguen en pie los frenos: no se publica nada en rojo, nunca push
+directo a `main`, nunca hacia `contabilidadcasa`, y cualquier cambio que vaya más allá de lo
+pedido, borre datos o retire una pantalla en uso se sigue consultando.
+
 ## Cierre de sesión — E20-4: «Registrar el mes» (mockup 2a)
 
 Se migra 2a, el único pendiente del turno 2, como pantalla nueva **`#registrar-mes`** junto a
